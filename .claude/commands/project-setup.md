@@ -56,8 +56,6 @@ This project was created from the `python` template, which includes:
 After setup, you'll have these commands:
 
 ```bash
-just develop   # Start devcontainer (auto-rebuilds if changed)
-just shell     # Open shell in devcontainer
 just install   # Install dependencies
 just test      # Run tests
 just lint      # Run linters
@@ -65,14 +63,6 @@ just format    # Format code
 just check     # Run all checks (lint + test)
 just sync-from-template  # Sync updates from template
 ```
-
-## Development Approach
-
-This project follows **Test-Driven Development (TDD)**:
-1. Write tests BEFORE implementation
-2. When creating beads issues, create test issues first
-3. Make implementation issues depend on their test issues
-4. Run `bd ready` to see what to work on - tests should be at the top
 
 ## Let's Get Started
 

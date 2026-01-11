@@ -12,9 +12,12 @@ development loop by:
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, cast
+
+import yaml
 
 # Magic string that allows stopping when human input is required
 HUMAN_INPUT_REQUIRED = (
@@ -46,8 +49,6 @@ def check_stdin_for_bypass() -> bool:
 
 def run_command(cmd: list[str]) -> tuple[int, str]:
     """Run a command and return (exit_code, output)."""
-    import subprocess
-
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         return result.returncode, (result.stdout or "") + (result.stderr or "")
@@ -70,8 +71,6 @@ def parse_session_file() -> dict[str, Any] | None:
         return None
 
     try:
-        import yaml
-
         result: object = yaml.safe_load(parts[1])
         if isinstance(result, dict):
             return cast(dict[str, Any], result)
@@ -91,8 +90,6 @@ def parse_session_file() -> dict[str, Any] | None:
 
 def update_session_file(config: dict[str, Any]) -> None:
     """Update the session file with new config."""
-    import yaml
-
     content = f"""---
 {yaml.dump(config, default_flow_style=False)}---
 

@@ -60,20 +60,18 @@ cd .template-repo
 just check  # Run lints and tests
 ```
 
-### 5. Commit and Create PR
+### 5. Commit and Push
 
 ```bash
 cd .template-repo
-git checkout -b improve-templates
 git add .
 git commit -m "Improve template: <description>"
-git push -u origin improve-templates
-gh pr create --title "Improve template: <description>" --body "..."
+git push  # Push directly to main (no PR required)
 ```
 
 ### 6. Update This Project
 
-After the PR is merged, run:
+After pushing, run:
 
 ```bash
 just sync-from-template
@@ -84,6 +82,5 @@ This will pull in your improvements along with any other template updates.
 ## Tips
 
 - Keep changes minimal and focused
-- One PR per logical change
 - Update tests if adding new functionality
 - Consider backwards compatibility
