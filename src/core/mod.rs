@@ -14,12 +14,14 @@
 pub mod level;
 pub mod range;
 pub mod sampler;
+pub mod stats;
 pub mod tree;
 pub mod update;
 
 pub use level::Level;
 pub use range::Range;
 pub use sampler::{sample, sample_n};
+pub use stats::{chi_squared_from_counts, chi_squared_sf, ChiSquaredResult};
 pub use tree::Tree;
 pub use update::MutableTree;
 

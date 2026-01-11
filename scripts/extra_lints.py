@@ -127,9 +127,7 @@ def check_todo_comments(file: Path, source: str) -> list[LintError]:
         match = todo_pattern.search(line)
         if match:
             msg = f"{match.group(1)} needs issue reference (e.g., TODO: PROJ-123)."
-            errors.append(
-                LintError(file, i, match.start(), "todo-needs-issue", msg)
-            )
+            errors.append(LintError(file, i, match.start(), "todo-needs-issue", msg))
     return errors
 
 
