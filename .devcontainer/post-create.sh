@@ -16,8 +16,8 @@ if [ -d /mnt/host-ssh ]; then
     chmod 644 ~/.ssh/*.pub 2>/dev/null || true
 fi
 
-# Install Claude Code and beads globally (needs sudo for global install)
-sudo npm install -g @anthropic-ai/claude-code @anthropics/beads || true
+# Update Claude Code and beads to latest (installed in Dockerfile, this ensures latest version)
+sudo npm install -g @anthropic-ai/claude-code @beads/bd || true
 
 # Set up uv to use a venv in $HOME to avoid conflicts with host .venv
 export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/$(basename "$PWD")"

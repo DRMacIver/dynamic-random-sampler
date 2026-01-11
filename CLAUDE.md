@@ -112,8 +112,8 @@ to all projects from this template:
 1. Clone the template repo: `git clone git@github.com:DRMacIver/new-project-template.git .template-repo`
 2. Make changes in `.template-repo/src/new_drmaciver_project/templates/`
 3. Test with `cd .template-repo && just check`
-4. Create PR to upstream changes
-5. After merge, run `just sync-from-template` to pull updates
+4. Commit and push directly to main (no PR required)
+5. Run `just sync-from-template` to pull updates into this project
 
 The `.template-repo/` directory is gitignored. Use `/upstream-template` for guided help.
 
