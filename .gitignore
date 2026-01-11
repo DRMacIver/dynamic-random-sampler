@@ -40,3 +40,10 @@ Cargo.lock
 # Local settings
 .claude/settings.local.json
 .claude/*.local.md
+
+# Added by template sync
+# Local Claude settings
+.claude/autonomous-session.local.md
+# Beads lock/socket files
+.beads/*.sock*
+.beads/*.lock*

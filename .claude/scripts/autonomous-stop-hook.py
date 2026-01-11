@@ -140,11 +140,61 @@ def run_quality_check() -> bool:
     return exit_code == 0
 
 
+def check_uncommitted_changes() -> tuple[bool, str]:
+    """Check for uncommitted git changes.
+
+    Returns (has_changes, description) where has_changes is True if there
+    are uncommitted changes that should block exit.
+    """
+    # Check for unstaged changes
+    exit_code, diff_output = run_command(["git", "diff", "--stat"])
+    if exit_code != 0:
+        # Not a git repo or git error, allow exit
+        return False, ""
+
+    # Check for staged changes
+    _, staged_output = run_command(["git", "diff", "--cached", "--stat"])
+
+    # Check for untracked files (but not ignored ones)
+    untracked_cmd = ["git", "ls-files", "--others", "--exclude-standard"]
+    _, untracked_output = run_command(untracked_cmd)
+
+    changes: list[str] = []
+    if diff_output.strip():
+        changes.append("unstaged changes")
+    if staged_output.strip():
+        changes.append("staged changes")
+    if untracked_output.strip():
+        changes.append("untracked files")
+
+    if changes:
+        return True, ", ".join(changes)
+    return False, ""
+
+
 def main() -> int:
     # Check for bypass string first
     if check_stdin_for_bypass():
         eprint("Human input required acknowledged. Allowing stop.")
         return 0
+
+    # Always check for uncommitted changes (even outside autonomous mode)
+    has_changes, change_desc = check_uncommitted_changes()
+    if has_changes:
+        eprint("# Uncommitted Changes Detected")
+        eprint()
+        eprint(f"Cannot exit with {change_desc}.")
+        eprint()
+        eprint("Before stopping, please:")
+        eprint()
+        eprint("1. Run `just check` to verify quality gates pass")
+        eprint("2. Stage your changes: `git add <files>`")
+        eprint("3. Commit with a descriptive message: `git commit -m '...'`")
+        eprint("4. Push to remote: `git push`")
+        eprint()
+        eprint("Work is incomplete until `git push` succeeds.")
+        eprint()
+        return 2  # Block exit
 
     # Check if autonomous mode is active
     config = parse_session_file()

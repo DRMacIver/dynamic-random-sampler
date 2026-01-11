@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/scripts/autonomous-stop-hook.py"
+            "command": "uv run --group dev python3 .claude/scripts/autonomous-stop-hook.py"
           }
         ]
       }
