@@ -453,7 +453,7 @@ mod tests {
         let tree1 = mutable.as_tree();
         let samples1: Vec<_> = (0..1000).filter_map(|_| sample(&tree1, &mut rng)).collect();
         let count0 = samples1.iter().filter(|&&x| x == 0).count();
-        let ratio1 = count0 as f64 / 1000.0;
+        let ratio1 = f64::from(u32::try_from(count0).unwrap()) / 1000.0;
         assert!(ratio1 > 0.4 && ratio1 < 0.6, "ratio was {ratio1}");
 
         // Update to make element 1 much heavier
@@ -465,7 +465,7 @@ mod tests {
             .filter_map(|_| sample(&tree2, &mut rng2))
             .collect();
         let count1 = samples2.iter().filter(|&&x| x == 1).count();
-        let fraction = count1 as f64 / 1000.0;
+        let fraction = f64::from(u32::try_from(count1).unwrap()) / 1000.0;
         assert!(fraction > 0.99, "fraction was {fraction}");
     }
 
@@ -478,16 +478,17 @@ mod tests {
         let mut tree = MutableTree::new(vec![0.0; 100]);
 
         // Update each element multiple times
-        for round in 0..10 {
+        for round in 0i32..10 {
             for i in 0..100 {
-                let new_weight = f64::from(i as i32) * 0.1 + f64::from(round);
+                let new_weight =
+                    f64::from(i32::try_from(i).unwrap()).mul_add(0.1, f64::from(round));
                 tree.update(i, new_weight);
             }
         }
 
         // Verify all weights are correct
         for i in 0..100 {
-            let expected = f64::from(i as i32) * 0.1 + 9.0;
+            let expected = f64::from(i32::try_from(i).unwrap()).mul_add(0.1, 9.0);
             assert_relative_eq!(
                 tree.element_log_weight(i).unwrap(),
                 expected,

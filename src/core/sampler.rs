@@ -230,7 +230,9 @@ mod tests {
         let count_1: usize = samples.iter().filter(|&&x| x == 1).count();
 
         // Expected ratio: 1:2, so count_1 should be about 2x count_0
-        let ratio = count_1 as f64 / count_0 as f64;
+        // Counts are small (<=10000), so u32 conversion is safe
+        let ratio =
+            f64::from(u32::try_from(count_1).unwrap()) / f64::from(u32::try_from(count_0).unwrap());
         assert!(ratio > 1.5 && ratio < 2.5, "ratio was {ratio}");
     }
 
@@ -246,7 +248,7 @@ mod tests {
 
         // Each should be about 1/3 of total
         for &count in &counts {
-            let fraction = count as f64 / 10000.0;
+            let fraction = f64::from(u32::try_from(count).unwrap()) / 10000.0;
             assert!(
                 fraction > 0.25 && fraction < 0.42,
                 "fraction was {fraction}"
@@ -264,7 +266,7 @@ mod tests {
         let count_1: usize = samples.iter().filter(|&&x| x == 1).count();
 
         // Element 1 should be sampled ~1024/1025 of the time
-        let fraction = count_1 as f64 / 10000.0;
+        let fraction = f64::from(u32::try_from(count_1).unwrap()) / 10000.0;
         assert!(fraction > 0.99, "fraction was {fraction}");
     }
 
@@ -304,7 +306,8 @@ mod tests {
         let count_1: usize = samples.iter().filter(|&&x| x == 1).count();
 
         // Weight ratio 0.5:0.25 = 2:1
-        let ratio = count_0 as f64 / count_1 as f64;
+        let ratio =
+            f64::from(u32::try_from(count_0).unwrap()) / f64::from(u32::try_from(count_1).unwrap());
         assert!(ratio > 1.5 && ratio < 2.5, "ratio was {ratio}");
     }
 
@@ -318,7 +321,7 @@ mod tests {
         let count_2: usize = samples.iter().filter(|&&x| x == 2).count();
 
         // Element 2 should be sampled almost all the time
-        let fraction = count_2 as f64 / 10000.0;
+        let fraction = f64::from(u32::try_from(count_2).unwrap()) / 10000.0;
         assert!(fraction > 0.99, "fraction was {fraction}");
     }
 

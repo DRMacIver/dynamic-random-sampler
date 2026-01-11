@@ -274,7 +274,7 @@ mod tests {
     fn test_tree_height_bound() {
         // Tree height should be O(log* N)
         // For reasonable N, this is at most 5-6 levels
-        let weights: Vec<f64> = (0..100).map(|i| f64::from(i) * 0.01 + 1.0).collect();
+        let weights: Vec<f64> = (0..100).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
         let tree = Tree::new(weights);
 
         // Height should be reasonable (definitely less than log N)
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_many_elements_same_range() {
         // Many elements in the same range
-        let weights: Vec<f64> = (0..10).map(|i| 1.0 + f64::from(i) * 0.05).collect();
+        let weights: Vec<f64> = (0..10).map(|i| f64::from(i).mul_add(0.05, 1.0)).collect();
         let tree = Tree::new(weights);
 
         // All in range 2 (weights between 2 and 4)
