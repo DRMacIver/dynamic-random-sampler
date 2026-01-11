@@ -1,0 +1,42 @@
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.uv/
+
+# Rust
+target/
+Cargo.lock
+*.so
+*.dylib
+*.dll
+
+# Template repo checkout (for making template changes)
+.template-repo/
+
+# Local settings
+.claude/settings.local.json
+.claude/*.local.md

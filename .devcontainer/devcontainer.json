@@ -1,0 +1,30 @@
+{
+  "name": "dynamic-random-sampler",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-python.vscode-pylance",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {}
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/mnt/host-claude,type=bind,readonly",
+    "source=${localEnv:HOME}/.ssh,target=/mnt/host-ssh,type=bind,readonly"
+  ],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "GITHUB_TOKEN": "ghs_T2OpYYDpulbBwmL3IbxYEYBipuxygp0iszWm",
+    "GH_TOKEN": "ghs_T2OpYYDpulbBwmL3IbxYEYBipuxygp0iszWm"
+  }
+}
