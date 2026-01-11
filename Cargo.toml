@@ -10,8 +10,13 @@ name = "dynamic_random_sampler"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.27", features = ["extension-module"] }
+pyo3 = "0.27"
 rand = "0.8"
+
+[features]
+default = ["extension-module"]
+# extension-module is needed for building the Python module
+extension-module = ["pyo3/extension-module"]
 
 [dev-dependencies]
 rand_chacha = "0.3"

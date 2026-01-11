@@ -7,6 +7,8 @@
 
 #![allow(clippy::redundant_pub_crate)]
 
+pub mod core;
+
 use pyo3::prelude::*;
 
 /// A dynamic weighted random sampler with O(log* N) operations.
@@ -46,6 +48,7 @@ impl DynamicSampler {
     }
 
     /// Return the number of elements.
+    #[allow(clippy::missing_const_for_fn)]
     fn __len__(&self) -> usize {
         self.log_weights.len()
     }
@@ -84,7 +87,7 @@ impl DynamicSampler {
 
     /// Sample a random index according to the weight distribution.
     ///
-    /// Returns index j with probability w_j / sum(w_i).
+    /// Returns index j with probability `w_j / sum(w_i)`.
     ///
     /// # Errors
     ///

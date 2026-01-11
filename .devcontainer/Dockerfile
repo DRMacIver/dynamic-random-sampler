@@ -5,7 +5,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
-# Install base dependencies (including build essentials for Rust)
+# Install base dependencies (including build essentials for Rust and Python dev)
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS and Claude Code
