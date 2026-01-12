@@ -38,8 +38,16 @@ build:
 build-release:
     uv run maturin develop --release
 
-# Run all tests (Python tests cover both Rust and Python)
+# Run tests (skips slow tests by default)
 test:
+    uv run pytest -m "not slow"
+
+# Run only slow tests
+test-slow:
+    uv run pytest -m slow
+
+# Run all tests including slow ones
+test-all:
     uv run pytest
 
 # Run Python tests with verbose output

@@ -48,10 +48,16 @@ class LintVisitor(ast.NodeVisitor):
         self.errors.append(LintError(self.file, lineno, col_offset, rule, message))
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        # Rule 1: No class-based tests
+        # Rule 1: No class-based tests (except Hypothesis stateful tests)
         if self._is_test_file and node.name.startswith("Test"):
-            msg = f"Class-based test '{node.name}' found. Use functions."
-            self._add_error(node, "no-class-tests", msg)
+            # Allow Hypothesis stateful test classes (inherit from *.TestCase)
+            is_hypothesis_stateful = any(
+                isinstance(base, ast.Attribute) and base.attr == "TestCase"
+                for base in node.bases
+            )
+            if not is_hypothesis_stateful:
+                msg = f"Class-based test '{node.name}' found. Use functions."
+                self._add_error(node, "no-class-tests", msg)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:

@@ -8,6 +8,7 @@ from collections import Counter
 from typing import Any
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import assume, given, note, settings
 from hypothesis.stateful import (
     RuleBasedStateMachine,
@@ -345,7 +346,13 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 
 
 # Create the test class that pytest will discover
-TestDynamicSamplerStateful = DynamicSamplerStateMachine.TestCase
+@pytest.mark.slow
+class TestDynamicSamplerStateful(DynamicSamplerStateMachine.TestCase):  # pyright: ignore[reportUntypedBaseClass]
+    """Stateful test class - slow due to comprehensive coverage."""
+
+    pass
+
+
 TestDynamicSamplerStateful.settings = settings(
     max_examples=100, stateful_step_count=50, deadline=None
 )
@@ -436,6 +443,7 @@ def test_updates_followed_by_samples_are_valid(
         assert 0 <= sample_idx < len(initial_weights)
 
 
+@pytest.mark.slow
 @given(st.lists(st.floats(min_value=1.0, max_value=10.0), min_size=3, max_size=10))
 @settings(max_examples=10, deadline=None)
 def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
