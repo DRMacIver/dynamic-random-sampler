@@ -1285,11 +1285,12 @@ mod tests {
         // Create tree with uniform weights
         let log_weights = vec![0.0; 10]; // all weight 1
         let mut tree = MutableTree::new(log_weights);
-        let mut rng = ChaCha8Rng::seed_from_u64(123456);
+        let mut rng = ChaCha8Rng::seed_from_u64(123_456);
 
         // Perform many random updates
         for i in 0..100 {
             let idx = i % tree.len();
+            #[allow(clippy::cast_precision_loss)]
             let new_weight = (i as f64 * 0.1).sin().abs() + 0.1; // weights in [0.1, 1.1]
             tree.update(idx, new_weight.log2());
         }
@@ -1302,7 +1303,7 @@ mod tests {
 
         // Sample many times
         let immutable = tree.as_tree();
-        let mut counts = vec![0usize; 10];
+        let mut counts = [0usize; 10];
         let num_samples = 10_000;
         for _ in 0..num_samples {
             if let Some(idx) = sample(&immutable, &mut rng) {
@@ -1312,7 +1313,7 @@ mod tests {
 
         // Verify distribution with chi-squared test
         let weights: Vec<f64> = final_weights.to_vec();
-        let result = chi_squared_from_counts(&counts, &weights, num_samples);
+        let result = chi_squared_from_counts(&counts[..], &weights, num_samples);
         assert!(
             result.passes(0.001),
             "Distribution incorrect after updates: chi2={:.2}, p={:.6}",
@@ -1341,7 +1342,7 @@ mod tests {
 
         // Sample
         let immutable = tree.as_tree();
-        let mut rng = ChaCha8Rng::seed_from_u64(654321);
+        let mut rng = ChaCha8Rng::seed_from_u64(654_321);
         let mut counts = vec![0usize; 6];
         let num_samples = 10_000;
         for _ in 0..num_samples {
@@ -1381,8 +1382,8 @@ mod tests {
 
         // Sample
         let immutable = tree.as_tree();
-        let mut rng = ChaCha8Rng::seed_from_u64(111222);
-        let mut counts = vec![0usize; 10];
+        let mut rng = ChaCha8Rng::seed_from_u64(111_222);
+        let mut counts = [0usize; 10];
         let num_samples = 10_000;
         for _ in 0..num_samples {
             if let Some(idx) = sample(&immutable, &mut rng) {

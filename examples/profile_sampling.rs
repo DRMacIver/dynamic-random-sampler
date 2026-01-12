@@ -1,7 +1,7 @@
 //! Simple binary for profiling sampling performance.
 //!
-//! Run with: cargo build --release --example profile_sampling
-//! Profile with: samply record ./target/release/examples/profile_sampling
+//! Run with: `cargo build --release --example profile_sampling`
+//! Profile with: `samply record ./target/release/examples/profile_sampling`
 
 use dynamic_random_sampler::core::{sample, Tree};
 use rand::SeedableRng;
