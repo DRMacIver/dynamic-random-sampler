@@ -56,21 +56,16 @@ fn gumbel_max_sample<R: Rng>(log_weights: impl Iterator<Item = f64>, rng: &mut R
         }
 
         // Generate Gumbel(0, 1) noise: -log(-log(U)) where U ~ Uniform(0, 1)
-        // Use loop to avoid issues with U = 0 or U = 1
-        let gumbel = loop {
-            let u: f64 = rng.gen();
-            if u > 0.0 && u < 1.0 {
-                break -(-u.ln()).ln();
-            }
-        };
+        // Note: U=0 or U=1 has probability 0 with f64, so we use gen_range for safety
+        // without loop overhead. If U happens to be exactly 0 or 1 (astronomically rare),
+        // the result will be -inf or inf, which is fine for argmax.
+        let u: f64 = rng.gen_range(f64::MIN_POSITIVE..1.0);
+        let gumbel = -(-u.ln()).ln();
 
         // Compute perturbed log-weight
         // Our log-weights are in log₂, but Gumbel-max assumes natural log.
-        // ln(w) = log₂(w) * ln(2), so we need to scale the log-weights:
-        // perturbed = log₂(w) * ln(2) + Gumbel
-        // Since we only care about argmax, we can equivalently not scale
-        // and instead scale the Gumbel noise: log₂(w) + Gumbel / ln(2)
-        let perturbed = log_weight + gumbel * std::f64::consts::LOG2_E;
+        // Since we only care about argmax, we scale Gumbel by LOG2_E: log₂(w) + Gumbel / ln(2)
+        let perturbed = gumbel.mul_add(std::f64::consts::LOG2_E, log_weight);
 
         if perturbed > best_value {
             best_value = perturbed;

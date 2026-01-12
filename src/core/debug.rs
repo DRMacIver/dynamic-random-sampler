@@ -113,14 +113,18 @@ macro_rules! debug_assert_timeout {
 }
 
 /// Track iteration count and panic if it exceeds the maximum.
+///
+/// In release mode (without debug-timeout), this only checks every 1024 iterations
+/// to minimize overhead while still catching infinite loops.
+#[cfg(feature = "debug-timeout")]
 pub struct IterationCounter {
     count: usize,
     max: usize,
     operation: &'static str,
-    #[cfg(feature = "debug-timeout")]
     guard: TimeoutGuard,
 }
 
+#[cfg(feature = "debug-timeout")]
 impl IterationCounter {
     /// Create a new iteration counter.
     #[must_use]
@@ -129,7 +133,6 @@ impl IterationCounter {
             count: 0,
             max,
             operation,
-            #[cfg(feature = "debug-timeout")]
             guard: TimeoutGuard::new(operation),
         }
     }
@@ -151,14 +154,63 @@ impl IterationCounter {
             "Operation '{operation}' exceeded maximum iterations ({max}) - likely infinite loop",
         );
 
-        // Check timeout periodically (every 1000 iterations) when feature enabled
-        #[cfg(feature = "debug-timeout")]
+        // Check timeout periodically (every 1000 iterations)
         if count.is_multiple_of(1000) {
             self.guard.check_with_context(&format!("iteration {count}"));
         }
     }
 
     /// Get the current iteration count.
+    #[must_use]
+    pub const fn count(&self) -> usize {
+        self.count
+    }
+}
+
+/// Lightweight iteration counter for release mode.
+///
+/// Only checks every 1024 iterations to minimize overhead.
+#[cfg(not(feature = "debug-timeout"))]
+pub struct IterationCounter {
+    count: usize,
+    max: usize,
+    operation: &'static str,
+}
+
+#[cfg(not(feature = "debug-timeout"))]
+impl IterationCounter {
+    /// Create a new iteration counter.
+    #[inline]
+    #[must_use]
+    pub const fn new(operation: &'static str, max: usize) -> Self {
+        Self {
+            count: 0,
+            max,
+            operation,
+        }
+    }
+
+    /// Increment the counter and check limits periodically.
+    ///
+    /// Only checks every 1024 iterations to minimize overhead.
+    #[inline]
+    pub fn tick(&mut self) {
+        self.count += 1;
+
+        // Only check every 1024 iterations for minimal overhead (1024 = 2^10, cheap bitwise)
+        if self.count & 0x3FF == 0 {
+            let count = self.count;
+            let max = self.max;
+            let operation = self.operation;
+            assert!(
+                count <= max,
+                "Operation '{operation}' exceeded maximum iterations ({max}) - likely infinite loop",
+            );
+        }
+    }
+
+    /// Get the current iteration count.
+    #[inline]
     #[must_use]
     pub const fn count(&self) -> usize {
         self.count
