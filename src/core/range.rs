@@ -10,6 +10,11 @@
 //! - Degree is the number of children
 //! - Root ranges have degree 1 (only one child)
 //! - Non-root ranges have degree >= 2
+//!
+//! # Implementation Note
+//!
+//! Children are stored in a `Vec` for O(1) random access (critical for rejection
+//! sampling performance) with a `HashMap` index for O(1) lookup by child ID.
 
 use std::collections::HashMap;
 
@@ -27,12 +32,18 @@ pub struct Child {
 /// A range in the tree structure.
 ///
 /// Stores children whose weights fall in `[2^(j-1), 2^j)` where j is the range number.
+///
+/// Uses dual storage for efficient operations:
+/// - `children_vec`: O(1) random access for rejection sampling
+/// - `children_idx`: O(1) lookup by child index for updates/removals
 #[derive(Debug)]
 pub struct Range {
     /// The range number j, determining the weight interval `[2^(j-1), 2^j)`
     range_number: i32,
-    /// Children stored in this range, keyed by child index for O(1) lookup
-    children: HashMap<usize, f64>,
+    /// Children stored as a Vec for O(1) random access
+    children_vec: Vec<Child>,
+    /// Index mapping: `child_index` -> position in `children_vec`
+    children_idx: HashMap<usize, usize>,
     /// Cached total log-weight (invalidated on modifications)
     cached_total_log_weight: Option<f64>,
 }
@@ -46,7 +57,8 @@ impl Range {
     pub fn new(range_number: i32) -> Self {
         Self {
             range_number,
-            children: HashMap::new(),
+            children_vec: Vec::new(),
+            children_idx: HashMap::new(),
             cached_total_log_weight: None,
         }
     }
@@ -59,22 +71,22 @@ impl Range {
 
     /// Get the number of children (degree) in this range.
     #[must_use]
-    pub fn degree(&self) -> usize {
-        self.children.len()
+    pub const fn degree(&self) -> usize {
+        self.children_vec.len()
     }
 
     /// Check if the range is empty (has no children).
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.children.is_empty()
+    pub const fn is_empty(&self) -> bool {
+        self.children_vec.is_empty()
     }
 
     /// Check if this is a root range (has exactly one child).
     ///
     /// Root ranges are stored in level tables rather than parent ranges.
     #[must_use]
-    pub fn is_root(&self) -> bool {
-        self.children.len() == 1
+    pub const fn is_root(&self) -> bool {
+        self.children_vec.len() == 1
     }
 
     /// Add a child to this range.
@@ -87,14 +99,18 @@ impl Range {
     /// Panics if a child with this index already exists. Use `update_child_weight` instead.
     pub fn add_child(&mut self, index: usize, log_weight: f64) {
         assert!(
-            !self.children.contains_key(&index),
+            !self.children_idx.contains_key(&index),
             "Child with index {index} already exists"
         );
-        self.children.insert(index, log_weight);
+        let pos = self.children_vec.len();
+        self.children_vec.push(Child { index, log_weight });
+        self.children_idx.insert(index, pos);
         self.cached_total_log_weight = None;
     }
 
     /// Remove a child from this range.
+    ///
+    /// Uses swap-remove for O(1) removal while maintaining O(1) random access.
     ///
     /// # Arguments
     /// * `index` - The child's index to remove
@@ -102,11 +118,17 @@ impl Range {
     /// # Returns
     /// The log-weight of the removed child, or None if not found
     pub fn remove_child(&mut self, index: usize) -> Option<f64> {
-        let result = self.children.remove(&index);
-        if result.is_some() {
-            self.cached_total_log_weight = None;
+        let pos = self.children_idx.remove(&index)?;
+        let removed = self.children_vec.swap_remove(pos);
+
+        // If we swapped an element (not removing last), update the moved element's index
+        if pos < self.children_vec.len() {
+            let moved_child_index = self.children_vec[pos].index;
+            self.children_idx.insert(moved_child_index, pos);
         }
-        result
+
+        self.cached_total_log_weight = None;
+        Some(removed.log_weight)
     }
 
     /// Update the weight of an existing child.
@@ -118,14 +140,11 @@ impl Range {
     /// # Returns
     /// The old log-weight, or None if child not found
     pub fn update_child_weight(&mut self, index: usize, new_log_weight: f64) -> Option<f64> {
-        if let Some(old_weight) = self.children.get_mut(&index) {
-            let old = *old_weight;
-            *old_weight = new_log_weight;
-            self.cached_total_log_weight = None;
-            Some(old)
-        } else {
-            None
-        }
+        let &pos = self.children_idx.get(&index)?;
+        let old = self.children_vec[pos].log_weight;
+        self.children_vec[pos].log_weight = new_log_weight;
+        self.cached_total_log_weight = None;
+        Some(old)
     }
 
     /// Get a child by index.
@@ -137,13 +156,14 @@ impl Range {
     /// The child's log-weight if found
     #[must_use]
     pub fn get_child(&self, index: usize) -> Option<f64> {
-        self.children.get(&index).copied()
+        let &pos = self.children_idx.get(&index)?;
+        Some(self.children_vec[pos].log_weight)
     }
 
     /// Check if a child with the given index exists.
     #[must_use]
     pub fn contains_child(&self, index: usize) -> bool {
-        self.children.contains_key(&index)
+        self.children_idx.contains_key(&index)
     }
 
     /// Get the total log-weight of all children.
@@ -156,7 +176,7 @@ impl Range {
             return cached;
         }
 
-        let total = log_sum_exp(self.children.values().copied());
+        let total = log_sum_exp(self.children_vec.iter().map(|c| c.log_weight));
         self.cached_total_log_weight = Some(total);
         total
     }
@@ -164,7 +184,7 @@ impl Range {
     /// Get the total log-weight without caching (immutable version).
     #[must_use]
     pub fn compute_total_log_weight(&self) -> f64 {
-        log_sum_exp(self.children.values().copied())
+        log_sum_exp(self.children_vec.iter().map(|c| c.log_weight))
     }
 
     /// Iterate over all children.
@@ -172,16 +192,13 @@ impl Range {
     /// # Returns
     /// Iterator yielding `(index, log_weight)` pairs
     pub fn children(&self) -> impl Iterator<Item = (usize, f64)> + '_ {
-        self.children.iter().map(|(&idx, &lw)| (idx, lw))
+        self.children_vec.iter().map(|c| (c.index, c.log_weight))
     }
 
-    /// Get a random child by bucket index.
+    /// Get a random child by bucket index in O(1) time.
     ///
     /// For the rejection method, we need to select children uniformly at random.
     /// This returns the child at a given "bucket" position (0 to degree-1).
-    ///
-    /// Note: `HashMap` iteration order is arbitrary but consistent, which is
-    /// fine for uniform random selection.
     ///
     /// # Arguments
     /// * `bucket` - The bucket index (0 to degree-1)
@@ -189,11 +206,11 @@ impl Range {
     /// # Returns
     /// `(child_index, child_log_weight)` or None if bucket is out of range
     #[must_use]
+    #[inline]
     pub fn get_child_by_bucket(&self, bucket: usize) -> Option<(usize, f64)> {
-        self.children
-            .iter()
-            .nth(bucket)
-            .map(|(&idx, &lw)| (idx, lw))
+        self.children_vec
+            .get(bucket)
+            .map(|c| (c.index, c.log_weight))
     }
 }
 
@@ -464,5 +481,146 @@ mod tests {
         // Can call multiple times on immutable reference
         let total2 = range.compute_total_log_weight();
         assert!((total - total2).abs() < 1e-15);
+    }
+
+    // -------------------------------------------------------------------------
+    // Random Access Tests (for rejection sampling optimization)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_get_child_by_bucket_covers_all_children() {
+        let mut range = Range::new(2);
+        range.add_child(100, 1.0);
+        range.add_child(200, 1.5);
+        range.add_child(300, 1.9);
+
+        // Collect all children via bucket access
+        let mut collected_indices: Vec<usize> = Vec::new();
+        for bucket in 0..3 {
+            if let Some((idx, _)) = range.get_child_by_bucket(bucket) {
+                collected_indices.push(idx);
+            }
+        }
+
+        // Should have exactly 3 children
+        assert_eq!(collected_indices.len(), 3);
+        collected_indices.sort_unstable();
+        assert_eq!(collected_indices, vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn test_get_child_by_bucket_consistency() {
+        // Bucket access should be consistent across multiple calls
+        let mut range = Range::new(2);
+        for i in 0..10 {
+            #[allow(clippy::cast_possible_wrap)]
+            let weight = f64::from(i as i32).mul_add(0.1, 1.0);
+            range.add_child(i * 7, weight);
+        }
+
+        // Access the same bucket multiple times
+        let first_access = range.get_child_by_bucket(3);
+        let second_access = range.get_child_by_bucket(3);
+        assert_eq!(first_access, second_access);
+    }
+
+    #[test]
+    fn test_get_child_by_bucket_after_removal() {
+        let mut range = Range::new(2);
+        range.add_child(0, 1.0);
+        range.add_child(1, 1.5);
+        range.add_child(2, 1.9);
+
+        // Remove middle element
+        range.remove_child(1);
+
+        // Should only have 2 accessible buckets now
+        assert!(range.get_child_by_bucket(0).is_some());
+        assert!(range.get_child_by_bucket(1).is_some());
+        assert!(range.get_child_by_bucket(2).is_none());
+
+        // The remaining children should be 0 and 2
+        let mut remaining: Vec<usize> = (0..2)
+            .filter_map(|b| range.get_child_by_bucket(b).map(|(idx, _)| idx))
+            .collect();
+        remaining.sort_unstable();
+        assert_eq!(remaining, vec![0, 2]);
+    }
+
+    #[test]
+    fn test_bucket_access_with_many_children() {
+        let mut range = Range::new(5);
+        let n = 100;
+        for i in 0..n {
+            #[allow(clippy::cast_precision_loss)]
+            let weight = (i as f64).mul_add(0.001, 4.0);
+            range.add_child(i, weight);
+        }
+
+        // All buckets should be accessible
+        for bucket in 0..n {
+            assert!(
+                range.get_child_by_bucket(bucket).is_some(),
+                "Bucket {bucket} should be accessible"
+            );
+        }
+
+        // Bucket n should not be accessible
+        assert!(range.get_child_by_bucket(n).is_none());
+    }
+
+    #[test]
+    fn test_child_weights_in_bucket_access() {
+        let mut range = Range::new(2);
+        range.add_child(10, 1.2);
+        range.add_child(20, 1.4);
+        range.add_child(30, 1.6);
+
+        // Verify that bucket access returns correct weights
+        let children_via_bucket: Vec<(usize, f64)> = (0..3)
+            .filter_map(|b| range.get_child_by_bucket(b))
+            .collect();
+
+        // Each child should have its correct weight
+        for (idx, weight) in &children_via_bucket {
+            let expected_weight = match *idx {
+                10 => 1.2,
+                20 => 1.4,
+                30 => 1.6,
+                _ => panic!("Unexpected index {idx}"),
+            };
+            assert!(
+                (weight - expected_weight).abs() < 1e-10,
+                "Weight mismatch for index {idx}: expected {expected_weight}, got {weight}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bucket_access_matches_children_iterator() {
+        let mut range = Range::new(3);
+        range.add_child(5, 2.0);
+        range.add_child(15, 2.5);
+        range.add_child(25, 2.8);
+        range.add_child(35, 2.9);
+
+        // Collect via iterator
+        let mut iter_children: Vec<(usize, f64)> = range.children().collect();
+        iter_children.sort_by_key(|(idx, _)| *idx);
+
+        // Collect via bucket access
+        let mut bucket_children: Vec<(usize, f64)> = (0..range.degree())
+            .filter_map(|b| range.get_child_by_bucket(b))
+            .collect();
+        bucket_children.sort_by_key(|(idx, _)| *idx);
+
+        // Should be identical
+        assert_eq!(iter_children.len(), bucket_children.len());
+        for ((iter_idx, iter_w), (bucket_idx, bucket_w)) in
+            iter_children.iter().zip(bucket_children.iter())
+        {
+            assert_eq!(iter_idx, bucket_idx);
+            assert!((iter_w - bucket_w).abs() < 1e-15);
+        }
     }
 }

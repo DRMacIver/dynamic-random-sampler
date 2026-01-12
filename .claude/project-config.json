@@ -1,0 +1,11 @@
+{
+  "project_type": null,
+  "characteristics": {
+    "algorithm_heavy": false,
+    "performance_critical": false,
+    "has_native_bindings": false,
+    "api_service": false,
+    "cli_tool": false
+  },
+  "custom_advice": []
+}

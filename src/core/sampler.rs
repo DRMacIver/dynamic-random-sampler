@@ -274,19 +274,14 @@ fn walk_down<R: Rng>(
 /// Panics if rejection sampling exceeds `MAX_REJECTION_ITERATIONS` iterations.
 /// With `debug-timeout` feature: also panics if the operation exceeds 1 second.
 fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
-    if range.is_empty() {
+    let degree = range.degree();
+    if degree == 0 {
         return None;
     }
 
     let j = range.range_number();
     // Use log-space upper bound to avoid overflow: log2(2^j) = j
     let log_upper_bound = f64::from(j);
-
-    // Collect children for rejection sampling
-    let children: Vec<_> = range.children().collect();
-    if children.is_empty() {
-        return None;
-    }
 
     // Debug assertions about the range state
     debug_assert!(
@@ -299,11 +294,11 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
     {
         // Average log_accept_prob = avg(log_weight - j)
         #[allow(clippy::cast_precision_loss)]
-        let avg_log_accept: f64 = children
-            .iter()
+        let avg_log_accept: f64 = range
+            .children()
             .map(|(_, lw)| lw - log_upper_bound)
             .sum::<f64>()
-            / children.len() as f64;
+            / degree as f64;
         if avg_log_accept < -10.0 {
             // avg accept_prob < 2^-10 ≈ 0.001
             eprintln!(
@@ -311,7 +306,7 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
                 avg_log_accept,
                 avg_log_accept.exp2(),
                 j,
-                children.len()
+                degree
             );
             dump_range_state(range);
         }
@@ -323,9 +318,11 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
     loop {
         counter.tick();
 
-        // Pick a random child uniformly
-        let idx = rng.gen_range(0..children.len());
-        let (child_idx, log_weight) = children[idx];
+        // Pick a random child uniformly using O(1) bucket access
+        let bucket = rng.gen_range(0..degree);
+        let (child_idx, log_weight) = range
+            .get_child_by_bucket(bucket)
+            .expect("bucket should be valid");
 
         // Debug assertion: log_weight should be finite (not deleted)
         debug_assert!(
