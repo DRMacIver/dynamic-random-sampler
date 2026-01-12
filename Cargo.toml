@@ -26,6 +26,11 @@ debug-timeout = []
 [dev-dependencies]
 rand_chacha = "0.3"
 approx = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "sampling"
+harness = false
 
 [profile.release]
 lto = true
