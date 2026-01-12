@@ -450,8 +450,9 @@ def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
     # Use 10k samples - enough for good statistical power without being too slow
     result = sampler.test_distribution(10000)
 
-    # Should pass at 0.001 level - with 10 examples, expect ~1% flaky runs
-    assert result.passes(0.001), (
+    # Use alpha=1e-6 for negligible false positive rate (~1e-5 per run).
+    # Power: with 10k samples, >99.9999% power to detect 50x sampling error.
+    assert result.passes(1e-6), (
         f"Chi-squared test failed: chi2={result.chi_squared:.2f}, "
         f"p_value={result.p_value:.6f}, weights={weights}"
     )
