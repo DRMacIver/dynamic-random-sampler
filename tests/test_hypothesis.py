@@ -10,9 +10,7 @@ from typing import Any
 import hypothesis.strategies as st
 from hypothesis import assume, given, note, settings
 from hypothesis.stateful import (
-    Bundle,
     RuleBasedStateMachine,
-    consumes,
     initialize,
     invariant,
     precondition,
@@ -102,6 +100,12 @@ def test_update_preserves_other_weights(
 # Rule-Based Stateful Testing
 # -----------------------------------------------------------------------------
 
+indices = st.runner().flatmap(
+    lambda self: st.integers(min_value=0, max_value=len(self.weights) - 1)
+    if self.weights
+    else st.nothing()
+)
+
 
 class DynamicSamplerStateMachine(RuleBasedStateMachine):
     """Stateful test machine for the DynamicSampler.
@@ -116,16 +120,15 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         self.weights: list[float] = []
         self.sample_counts: Counter[int] = Counter()
         self.total_samples: int = 0
-
-    # Bundle for weight indices we can operate on
-    indices: Bundle[int] = Bundle("indices")
+        self.chi_squared_seed: int = 0
 
     @initialize(
         weights=st.lists(
             st.floats(min_value=0.1, max_value=100.0), min_size=2, max_size=20
-        )
+        ),
+        seed=st.integers(min_value=0, max_value=2**32 - 1),
     )
-    def init_sampler(self, weights: list[float]) -> None:
+    def init_sampler(self, weights: list[float], seed: int) -> None:
         """Initialize the sampler with random weights."""
         from dynamic_random_sampler import DynamicSampler
 
@@ -133,29 +136,14 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         self.weights = list(weights)
         self.sample_counts = Counter()
         self.total_samples = 0
+        self.chi_squared_seed = seed
         note(f"Initialized with {len(weights)} weights: {weights[:5]}...")
+        note(f"Chi-squared seed: {seed}")
 
-    @rule(target=indices)
-    def add_index(self) -> int:
-        """Add a valid index to the bundle."""
-        if not self.weights:
-            return 0
-        return len(self.weights) - 1
-
-    @rule(target=indices, i=st.integers(min_value=0, max_value=100))
-    def add_bounded_index(self, i: int) -> int:
-        """Add a bounded index to the bundle."""
-        if not self.weights:
-            return 0
-        return i % len(self.weights)
-
-    @rule(index=consumes(indices), new_weight=st.floats(min_value=0.1, max_value=100.0))
+    @rule(index=indices, new_weight=st.floats(min_value=0.1, max_value=100.0))
     @precondition(lambda self: self.sampler is not None and len(self.weights) > 0)
     def update_weight(self, index: int, new_weight: float) -> None:
         """Update a weight to a new positive value."""
-        if index >= len(self.weights):
-            index = index % len(self.weights)
-
         old_weight = self.weights[index]
         self.sampler.update(index, new_weight)
         self.weights[index] = new_weight
@@ -291,7 +279,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 
         # If max_weight is reasonable and sampled weight is absurdly low, fail
         # The threshold of 1e-50 is still incredibly unlikely but gives margin
-        assert sampled_weight >= 1e-50 or max_weight < 0.01, (
+        assert sampled_weight >= 1e-50, (
             f"Sampled index {idx} with weight {sampled_weight} when max weight "
             f"is {max_weight}. This should be astronomically unlikely!"
         )
@@ -319,30 +307,39 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         note(f"Total samples taken during test: {self.total_samples}")
         note(f"Final weights: {self.weights}")
 
-        # Skip chi-squared test for extremely skewed distributions
-        # The chi-squared test can be unreliable when some expected counts are tiny
-        max_weight = max(self.weights)
-        min_weight = min(self.weights)
-        if max_weight / min_weight > 1e6:
-            note("Skipping chi-squared (extreme weight ratio > 1e6)")
-            return
-
         # Run chi-squared test on the final state with fresh samples
         # Use more samples for better statistical power
-        result = self.sampler.test_distribution(50000)
-        note(f"Chi-squared test: chi2={result.chi_squared:.2f}, p={result.p_value:.4f}")
+        # Pass seed for reproducibility (allows Hypothesis to shrink failing cases)
+        result = self.sampler.test_distribution(100000, seed=self.chi_squared_seed)
+        note(
+            f"Chi-squared test: chi2={result.chi_squared:.2f}, p={result.p_value:.4f}, "
+            f"seed={self.chi_squared_seed}, excluded={result.excluded_count}, "
+            f"unexpected={result.unexpected_samples}"
+        )
 
         # The test should pass at a reasonable significance level
-        # We use 0.001 (99.9% confidence) since we're testing the sampler itself
-        assert result.passes(0.001), (
+        # With max_examples=1000, we use alpha=0.0001 to reduce false positives
+        # (at alpha=0.001 we'd expect ~1 false failure in 1000 tests)
+        # Using 100k samples gives good statistical power
+        #
+        # The chi-squared test now properly handles small weights:
+        # - Indices with expected >= 5 are included in chi-squared
+        # - Indices with expected 0.001-5 are excluded (low but possible)
+        # - Indices with expected < 0.001 are excluded AND must have 0 samples
+        assert result.passes(0.0001), (
             f"Statistical conformance failed: chi2={result.chi_squared:.2f}, "
-            f"p_value={result.p_value:.6f}. "
+            f"p_value={result.p_value:.6f}, seed={self.chi_squared_seed}, "
+            f"excluded={result.excluded_count}, "
+            f"unexpected={result.unexpected_samples}. "
             f"Final weights: {self.weights}"
         )
 
 
 # Create the test class that pytest will discover
 TestDynamicSamplerStateful = DynamicSamplerStateMachine.TestCase
+TestDynamicSamplerStateful.settings = settings(
+    max_examples=1000, stateful_step_count=100
+)
 
 
 # -----------------------------------------------------------------------------

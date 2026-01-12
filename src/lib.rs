@@ -131,16 +131,21 @@ mod python_bindings {
         /// # Arguments
         ///
         /// * `num_samples` - Number of samples to take (default: 10000)
+        /// * `seed` - Optional random seed for reproducibility (default: None)
         ///
         /// # Returns
         ///
         /// A `PyChiSquaredResult` containing the test statistics.
-        #[pyo3(signature = (num_samples=10000))]
-        pub fn test_distribution(&self, num_samples: usize) -> PyChiSquaredResult {
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-
-            let n = self.log_weights.len();
+        #[pyo3(signature = (num_samples=10000, seed=None))]
+        #[allow(clippy::items_after_statements)] // Helper function and constants placed near usage
+        #[allow(clippy::too_many_lines)] // Logic is cohesive, splitting would reduce clarity
+        pub fn test_distribution(
+            &self,
+            num_samples: usize,
+            seed: Option<u64>,
+        ) -> PyChiSquaredResult {
+            use rand::prelude::*;
+            use rand_chacha::ChaCha8Rng;
 
             // Convert log weights to regular weights
             let max_log = self
@@ -155,31 +160,117 @@ mod python_bindings {
                 .collect();
             let total_weight: f64 = weights.iter().sum();
 
-            // Count observed occurrences by sampling
-            let mut observed = vec![0usize; n];
-            for _ in 0..num_samples {
-                let mut u: f64 = rng.gen::<f64>() * total_weight;
-                for (i, &w) in weights.iter().enumerate() {
-                    u -= w;
-                    if u <= 0.0 {
-                        observed[i] += 1;
-                        break;
+            // Helper to do sampling with a given RNG
+            fn do_sampling<R: Rng>(
+                rng: &mut R,
+                num_samples: usize,
+                weights: &[f64],
+                total_weight: f64,
+            ) -> Vec<usize> {
+                let n = weights.len();
+                let mut observed = vec![0usize; n];
+                for _ in 0..num_samples {
+                    let mut u: f64 = rng.gen::<f64>() * total_weight;
+                    for (i, &w) in weights.iter().enumerate() {
+                        u -= w;
+                        if u <= 0.0 {
+                            observed[i] += 1;
+                            break;
+                        }
+                    }
+                    if u > 0.0 {
+                        observed[n - 1] += 1;
                     }
                 }
-                // Handle floating point edge case
-                if u > 0.0 {
-                    observed[n - 1] += 1;
+                observed
+            }
+
+            // Count observed occurrences by sampling
+            let observed = seed.map_or_else(
+                || {
+                    let mut rng = rand::thread_rng();
+                    do_sampling(&mut rng, num_samples, &weights, total_weight)
+                },
+                |s| {
+                    let mut rng = ChaCha8Rng::seed_from_u64(s);
+                    do_sampling(&mut rng, num_samples, &weights, total_weight)
+                },
+            );
+
+            // Calculate expected counts and identify excluded indices
+            // Chi-squared test requires expected counts >= ~5 for validity
+            // We use two thresholds:
+            // - MIN_EXPECTED_CHI2: exclude from chi-squared test (low but possible)
+            // - MIN_EXPECTED_FAIL: if we see samples here, it's a definite failure
+            const MIN_EXPECTED_CHI2: f64 = 5.0; // Standard chi-squared assumption
+            const MIN_EXPECTED_FAIL: f64 = 0.001; // Truly impossible samples
+            #[allow(clippy::cast_precision_loss)] // Acceptable for statistical calculations
+            let num_samples_f64 = num_samples as f64;
+
+            let mut included_observed = Vec::new();
+            let mut included_weights = Vec::new();
+            let mut excluded_count = 0usize;
+            let mut unexpected_samples = 0usize;
+
+            for (i, &w) in weights.iter().enumerate() {
+                let expected = (w / total_weight) * num_samples_f64;
+                if expected >= MIN_EXPECTED_CHI2 {
+                    // Include in chi-squared test
+                    included_observed.push(observed[i]);
+                    included_weights.push(w);
+                } else if expected >= MIN_EXPECTED_FAIL {
+                    // Low but possible - exclude from chi-squared but don't fail if sampled
+                    excluded_count += 1;
+                } else {
+                    // Effectively zero - should never be sampled
+                    excluded_count += 1;
+                    if observed[i] > 0 {
+                        unexpected_samples += observed[i];
+                    }
                 }
             }
 
-            // Use the core stats module for the calculation
-            let result = crate::core::chi_squared_from_counts(&observed, &weights, num_samples);
+            // If we have unexpected samples in "impossible" indices, fail immediately
+            if unexpected_samples > 0 {
+                return PyChiSquaredResult {
+                    chi_squared: f64::INFINITY,
+                    degrees_of_freedom: 0,
+                    p_value: 0.0,
+                    num_samples,
+                    excluded_count,
+                    unexpected_samples,
+                };
+            }
+
+            // If no indices are included (all weights too small), skip chi-squared
+            if included_observed.is_empty() {
+                return PyChiSquaredResult {
+                    chi_squared: 0.0,
+                    degrees_of_freedom: 0,
+                    p_value: 1.0,
+                    num_samples,
+                    excluded_count,
+                    unexpected_samples: 0,
+                };
+            }
+
+            // Recalculate total samples for included indices
+            let included_total: usize = included_observed.iter().sum();
+
+            // Run chi-squared only on included indices
+            let result = crate::core::chi_squared_from_counts(
+                &included_observed,
+                &included_weights,
+                included_total,
+            );
 
             PyChiSquaredResult {
                 chi_squared: result.chi_squared,
                 degrees_of_freedom: result.degrees_of_freedom,
                 p_value: result.p_value,
                 num_samples: result.num_samples,
+                excluded_count,
+                unexpected_samples: 0,
             }
         }
     }
@@ -200,6 +291,12 @@ mod python_bindings {
         /// Number of samples taken.
         #[pyo3(get)]
         pub num_samples: usize,
+        /// Number of indices excluded from chi-squared (expected < threshold).
+        #[pyo3(get)]
+        pub excluded_count: usize,
+        /// Number of unexpected samples in excluded indices.
+        #[pyo3(get)]
+        pub unexpected_samples: usize,
     }
 
     #[pymethods]
@@ -215,8 +312,9 @@ mod python_bindings {
 
         fn __repr__(&self) -> String {
             format!(
-                "ChiSquaredResult(chi_squared={:.4}, df={}, p_value={:.6}, n={})",
-                self.chi_squared, self.degrees_of_freedom, self.p_value, self.num_samples
+                "ChiSquaredResult(chi_squared={:.4}, df={}, p_value={:.6}, n={}, excluded={}, unexpected={})",
+                self.chi_squared, self.degrees_of_freedom, self.p_value, self.num_samples,
+                self.excluded_count, self.unexpected_samples
             )
         }
     }
