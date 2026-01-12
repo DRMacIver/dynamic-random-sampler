@@ -315,8 +315,11 @@ mod python_bindings {
             // We use two thresholds:
             // - MIN_EXPECTED_CHI2: exclude from chi-squared test (low but possible)
             // - MIN_EXPECTED_FAIL: if we see samples here, it's a definite failure
+            //   This must be extremely small because with many low-weight elements,
+            //   even tiny individual probabilities can collectively yield samples.
+            //   With 1000 elements at expected=1e-9, P(any sampled) ≈ 1e-6.
             const MIN_EXPECTED_CHI2: f64 = 5.0; // Standard chi-squared assumption
-            const MIN_EXPECTED_FAIL: f64 = 0.001; // Truly impossible samples
+            const MIN_EXPECTED_FAIL: f64 = 1e-9; // Only fail for truly impossible samples
             #[allow(clippy::cast_precision_loss)] // Acceptable for statistical calculations
             let num_samples_f64 = num_samples as f64;
 

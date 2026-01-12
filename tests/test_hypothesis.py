@@ -141,8 +141,8 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         note(f"Chi-squared seed: {seed}")
 
     @rule(
-        n_to_add=st.integers(1, 100),  # Limited to 100 to avoid O(N^2) insert cost
-        weight=st.floats(min_value=0.1, max_value=1000.0)  # Match update_weight range
+        n_to_add=st.integers(1, 100),
+        weight=st.floats(min_value=0.1, max_value=1e6),
     )
     @precondition(lambda self: self.sampler is not None)
     def add_many_weights(self, n_to_add: int, weight: float) -> None:
