@@ -4,6 +4,10 @@
     "dockerfile": "Dockerfile"
   },
   "features": {},
+  "runArgs": ["--cap-add=SYS_ADMIN", "--security-opt", "seccomp=unconfined"],
+  "containerEnv": {
+    "PERF_EVENT_PARANOID": "-1"
+  },
   "customizations": {
     "vscode": {
       "extensions": [

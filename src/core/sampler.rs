@@ -339,18 +339,12 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
 
         // Compute acceptance probability in log space to avoid overflow:
         // accept_prob = weight / upper_bound = 2^log_weight / 2^j = 2^(log_weight - j)
+        //
+        // For weights in range [j-1, j), log_accept_prob is in [-1, 0),
+        // so accept_prob is always in [0.5, 1). We still clamp for robustness
+        // in case of tolerance or numerical edge cases.
         let log_accept_prob = log_weight - log_upper_bound;
-
-        // Convert to linear space, clamping to [0, 1]
-        // If log_accept_prob >= 0, then accept_prob >= 1, so always accept
-        // If log_accept_prob < -1074 (smallest f64 exponent), accept_prob ~= 0
-        let accept_prob = if log_accept_prob >= 0.0 {
-            1.0
-        } else if log_accept_prob < -1074.0 {
-            0.0
-        } else {
-            log_accept_prob.exp2()
-        };
+        let accept_prob = log_accept_prob.exp2().clamp(0.0, 1.0);
 
         // Debug assertion: accept_prob should be valid
         debug_assert!(

@@ -26,6 +26,10 @@ echo 'export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/$(basename "$PWD")"' >> ~/.bas
 # Ensure cargo is in PATH for this script
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Install profiling tools (samply for CPU profiling)
+echo "Installing samply profiler..."
+cargo install --locked samply 2>/dev/null || true
+
 # Install Python project dependencies
 if [ -f pyproject.toml ]; then
     uv sync
