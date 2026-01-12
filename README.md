@@ -84,10 +84,14 @@ where elements are partitioned by weight ranges. Key optimizations include:
 
 | Operation | Size | Time |
 |-----------|------|------|
-| single_sample | 100 | ~218ns |
-| single_sample | 1000 | ~198ns |
+| single_sample (uniform) | 1000 | ~198ns |
+| single_sample (power_law) | 1000 | ~370ns |
 | batch_1000 | 1000 | ~199us |
 | construction | 1000 | ~135us |
+| update (same range) | 1000 | ~1.8us |
+| update (cross range) | 1000 | ~750ns |
+| insert | 1000 | ~5.2us |
+| delete | 1000 | ~4.1us |
 
 (Measured on development machine)
 

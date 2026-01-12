@@ -548,14 +548,17 @@ impl MutableTree {
         // Check if this range's degree changed (root <-> non-root)
         let was_root_before = self.was_root_at_level(level_num, range_number);
 
-        // Recompute the range weight by looking at the level
-        if level_num <= self.levels.len() {
+        // Recompute and cache the range weight
+        let new_weight = if level_num <= self.levels.len() {
             let level = &mut self.levels[level_num - 1];
             if let Some(range) = level.get_range_mut(range_number) {
-                // Force cache invalidation
-                let _ = range.total_log_weight();
+                range.total_log_weight()
+            } else {
+                return;
             }
-        }
+        } else {
+            return;
+        };
 
         let is_root_now = self.is_root_at_level(level_num, range_number);
 
@@ -564,7 +567,6 @@ impl MutableTree {
             self.handle_root_status_change(level_num, range_number, is_root_now);
         } else if !is_root_now && level_num < self.levels.len() {
             // Non-root range: update weight in parent level
-            let new_weight = self.get_range_weight(level_num, range_number);
 
             // If the range is empty/gone (NEG_INFINITY), nothing to propagate
             if is_deleted_weight(new_weight) {
@@ -674,15 +676,6 @@ impl MutableTree {
             .get(level_num - 1)
             .and_then(|l| l.get_range(range_number))
             .is_some_and(Range::is_root)
-    }
-
-    /// Get the total log-weight of a range.
-    fn get_range_weight(&self, level_num: usize, range_number: i32) -> f64 {
-        use crate::core::Range;
-        self.levels
-            .get(level_num - 1)
-            .and_then(|l| l.get_range(range_number))
-            .map_or(f64::NEG_INFINITY, Range::compute_total_log_weight)
     }
 
     /// Handle when a range's root status changes.

@@ -11,7 +11,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use dynamic_random_sampler::core::{sample, sample_n, MutableTree, Tree};
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::time::Duration;
 
@@ -152,10 +152,173 @@ fn bench_batch_sample(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark weight update performance.
+fn bench_update(c: &mut Criterion) {
+    let mut group = c.benchmark_group("update");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+
+    for &n in &sizes {
+        let weights = Distribution::Uniform.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+        let mut tree = MutableTree::new(log_weights);
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+
+        // Benchmark same-range updates (no structural changes)
+        group.bench_function(BenchmarkId::new("same_range", n), |b| {
+            b.iter(|| {
+                // Update to a weight still in the same range (small change)
+                let idx = rng.gen_range(0..n);
+                let current = tree.element_log_weight(idx).unwrap();
+                // Stay within same range by small adjustment
+                let new_weight = current + 0.01;
+                tree.update(black_box(idx), black_box(new_weight));
+            });
+        });
+
+        // Reset tree for next benchmark
+        let log_weights = to_log_weights(&weights);
+        let mut tree = MutableTree::new(log_weights);
+
+        // Benchmark cross-range updates (structural changes)
+        group.bench_function(BenchmarkId::new("cross_range", n), |b| {
+            b.iter(|| {
+                let idx = rng.gen_range(0..n);
+                // Large change that likely crosses range boundaries
+                let new_weight = rng.gen_range(-5.0..5.0);
+                tree.update(black_box(idx), black_box(new_weight));
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark insert and delete operations.
+fn bench_insert_delete(c: &mut Criterion) {
+    let mut group = c.benchmark_group("insert_delete");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+
+    for &n in &sizes {
+        let weights = Distribution::Uniform.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+
+        // Benchmark insert - use a steady-state tree with insert+delete pairs
+        // to keep size bounded and measure true insert cost
+        let mut tree = MutableTree::new(log_weights.clone());
+        let mut inserted_indices: Vec<usize> = Vec::new();
+
+        group.bench_function(BenchmarkId::new("insert", n), |b| {
+            b.iter(|| {
+                let weight = rng.gen_range(-2.0..2.0);
+                let idx = tree.insert(black_box(weight));
+                inserted_indices.push(idx);
+
+                // Keep tree size bounded by deleting old inserted elements
+                if inserted_indices.len() > n {
+                    let old_idx = inserted_indices.remove(0);
+                    tree.delete(old_idx);
+                }
+            });
+        });
+
+        // Benchmark delete (soft delete) - delete random elements, reset when half deleted
+        let mut tree = MutableTree::new(log_weights.clone());
+        let mut available: Vec<usize> = (0..n).collect();
+        let mut deleted_count = 0;
+
+        group.bench_function(BenchmarkId::new("delete", n), |b| {
+            b.iter(|| {
+                if deleted_count >= n / 2 {
+                    // Reset: rebuild tree
+                    tree = MutableTree::new(log_weights.clone());
+                    available = (0..n).collect();
+                    deleted_count = 0;
+                }
+
+                // Pick and delete a random available element
+                if !available.is_empty() {
+                    let pos = rng.gen_range(0..available.len());
+                    let idx = available.swap_remove(pos);
+                    tree.delete(black_box(idx));
+                    deleted_count += 1;
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark mixed sample + update workflow.
+fn bench_mixed_workflow(c: &mut Criterion) {
+    let mut group = c.benchmark_group("mixed");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+
+    for &n in &sizes {
+        let weights = Distribution::PowerLaw { alpha: 1.0 }.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+        let tree = MutableTree::new(log_weights);
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+
+        // 90% samples, 10% updates
+        group.bench_function(BenchmarkId::new("90_sample_10_update", n), |b| {
+            let mut tree = tree.as_tree();
+            let mut mutable = MutableTree::new(to_log_weights(&weights));
+            b.iter(|| {
+                if rng.gen_ratio(9, 10) {
+                    black_box(sample(&tree, &mut rng));
+                } else {
+                    let idx = rng.gen_range(0..n);
+                    let new_weight = rng.gen_range(-2.0..2.0);
+                    mutable.update(idx, new_weight);
+                    tree = mutable.as_tree();
+                }
+            });
+        });
+
+        // 50% samples, 50% updates
+        group.bench_function(BenchmarkId::new("50_sample_50_update", n), |b| {
+            let mut tree = tree.as_tree();
+            let mut mutable = MutableTree::new(to_log_weights(&weights));
+            b.iter(|| {
+                if rng.gen_bool(0.5) {
+                    black_box(sample(&tree, &mut rng));
+                } else {
+                    let idx = rng.gen_range(0..n);
+                    let new_weight = rng.gen_range(-2.0..2.0);
+                    mutable.update(idx, new_weight);
+                    tree = mutable.as_tree();
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_construction,
     bench_single_sample,
     bench_batch_sample,
+    bench_update,
+    bench_insert_delete,
+    bench_mixed_workflow,
 );
 criterion_main!(benches);

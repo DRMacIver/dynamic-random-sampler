@@ -198,7 +198,7 @@ impl IterationCounter {
         self.count += 1;
 
         // Only check every 1024 iterations for minimal overhead (1024 = 2^10, cheap bitwise)
-        if self.count & 0x3FF == 0 {
+        if self.count.trailing_zeros() >= 10 {
             let count = self.count;
             let max = self.max;
             let operation = self.operation;
@@ -240,7 +240,7 @@ pub fn dump_range_state(range: &crate::core::Range) {
 }
 
 #[cfg(not(feature = "debug-timeout"))]
-pub fn dump_range_state(_range: &crate::core::Range) {}
+pub const fn dump_range_state(_range: &crate::core::Range) {}
 
 /// Debug helper to dump level state.
 #[cfg(feature = "debug-timeout")]
@@ -257,7 +257,7 @@ pub fn dump_level_state(level: &crate::core::Level) {
 }
 
 #[cfg(not(feature = "debug-timeout"))]
-pub fn dump_level_state(_level: &crate::core::Level) {}
+pub const fn dump_level_state(_level: &crate::core::Level) {}
 
 /// Debug helper to dump tree state.
 #[cfg(feature = "debug-timeout")]
@@ -279,4 +279,4 @@ pub fn dump_tree_state(tree: &crate::core::Tree) {
 }
 
 #[cfg(not(feature = "debug-timeout"))]
-pub fn dump_tree_state(_tree: &crate::core::Tree) {}
+pub const fn dump_tree_state(_tree: &crate::core::Tree) {}
