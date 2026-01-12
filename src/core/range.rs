@@ -166,10 +166,11 @@ impl Range {
         self.children_idx.contains_key(&index)
     }
 
-    /// Get the total log-weight of all children.
+    /// Get the total log-weight of all children (mutable version with caching).
     ///
     /// Uses log-sum-exp for numerical stability.
     /// Returns `NEG_INFINITY` if the range is empty.
+    /// Caches the result for future calls.
     #[must_use]
     pub fn total_log_weight(&mut self) -> f64 {
         if let Some(cached) = self.cached_total_log_weight {
@@ -181,7 +182,10 @@ impl Range {
         total
     }
 
-    /// Get the total log-weight without caching (immutable version).
+    /// Get the total log-weight of all children (immutable version without caching).
+    ///
+    /// Uses log-sum-exp for numerical stability.
+    /// Returns `NEG_INFINITY` if the range is empty.
     #[must_use]
     pub fn compute_total_log_weight(&self) -> f64 {
         log_sum_exp(self.children_vec.iter().map(|c| c.log_weight))

@@ -163,20 +163,32 @@ fn select_level<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
 /// have multiple elements. For small trees or ranges with single elements, we must
 /// select proportional to actual weight to ensure correct sampling distribution.
 fn select_root_range<'a, R: Rng>(level: &'a crate::core::Level, rng: &mut R) -> Option<&'a Range> {
-    // Collect root ranges and compute their total weights
-    let root_ranges: Vec<_> = level.root_ranges().collect();
-    if root_ranges.is_empty() {
-        return None;
+    // Single-pass Gumbel-max sampling without Vec allocation
+    let mut best_range: Option<&'a Range> = None;
+    let mut best_value = f64::NEG_INFINITY;
+
+    for (_, range) in level.root_ranges() {
+        let log_weight = range.compute_total_log_weight();
+
+        // Skip ranges with zero weight
+        if log_weight.is_infinite() && log_weight < 0.0 {
+            continue;
+        }
+
+        // Generate Gumbel(0, 1) noise
+        let u: f64 = rng.gen_range(f64::MIN_POSITIVE..1.0);
+        let gumbel = -(-u.ln()).ln();
+
+        // Compute perturbed log-weight (scale Gumbel by LOG2_E for log2 weights)
+        let perturbed = gumbel.mul_add(std::f64::consts::LOG2_E, log_weight);
+
+        if perturbed > best_value {
+            best_value = perturbed;
+            best_range = Some(range);
+        }
     }
 
-    // Get log-weights for each root range
-    let log_weights = root_ranges
-        .iter()
-        .map(|(_, r)| r.compute_total_log_weight());
-
-    // Use Gumbel-max to sample a root range
-    let idx = gumbel_max_sample(log_weights, rng)?;
-    Some(root_ranges[idx].1)
+    best_range
 }
 
 /// Walk down from a range at a given level to select an element.

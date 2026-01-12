@@ -167,53 +167,30 @@ impl IterationCounter {
     }
 }
 
-/// Lightweight iteration counter for release mode.
+/// No-op iteration counter for release mode.
 ///
-/// Only checks every 1024 iterations to minimize overhead.
+/// All methods are no-ops that compile to nothing.
 #[cfg(not(feature = "debug-timeout"))]
-pub struct IterationCounter {
-    count: usize,
-    max: usize,
-    operation: &'static str,
-}
+pub struct IterationCounter;
 
 #[cfg(not(feature = "debug-timeout"))]
 impl IterationCounter {
-    /// Create a new iteration counter.
+    /// Create a no-op iteration counter.
     #[inline]
     #[must_use]
-    pub const fn new(operation: &'static str, max: usize) -> Self {
-        Self {
-            count: 0,
-            max,
-            operation,
-        }
+    pub const fn new(_operation: &'static str, _max: usize) -> Self {
+        Self
     }
 
-    /// Increment the counter and check limits periodically.
-    ///
-    /// Only checks every 1024 iterations to minimize overhead.
+    /// No-op tick (compiles to nothing).
     #[inline]
-    pub fn tick(&mut self) {
-        self.count += 1;
+    pub const fn tick(&mut self) {}
 
-        // Only check every 1024 iterations for minimal overhead (1024 = 2^10, cheap bitwise)
-        if self.count.trailing_zeros() >= 10 {
-            let count = self.count;
-            let max = self.max;
-            let operation = self.operation;
-            assert!(
-                count <= max,
-                "Operation '{operation}' exceeded maximum iterations ({max}) - likely infinite loop",
-            );
-        }
-    }
-
-    /// Get the current iteration count.
+    /// Always returns 0 in release mode.
     #[inline]
     #[must_use]
     pub const fn count(&self) -> usize {
-        self.count
+        0
     }
 }
 
