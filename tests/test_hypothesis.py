@@ -310,7 +310,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         # Run chi-squared test on the final state with fresh samples
         # Use more samples for better statistical power
         # Pass seed for reproducibility (allows Hypothesis to shrink failing cases)
-        result = self.sampler.test_distribution(100000, seed=self.chi_squared_seed)
+        result = self.sampler.test_distribution(1000000, seed=self.chi_squared_seed)
         note(
             f"Chi-squared test: chi2={result.chi_squared:.2f}, p={result.p_value:.4f}, "
             f"seed={self.chi_squared_seed}, excluded={result.excluded_count}, "
@@ -338,7 +338,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 # Create the test class that pytest will discover
 TestDynamicSamplerStateful = DynamicSamplerStateMachine.TestCase
 TestDynamicSamplerStateful.settings = settings(
-    max_examples=1000, stateful_step_count=100
+    max_examples=1000, stateful_step_count=100, deadline=None
 )
 
 
