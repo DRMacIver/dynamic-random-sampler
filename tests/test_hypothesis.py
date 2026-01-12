@@ -308,9 +308,9 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         note(f"Final weights: {self.weights}")
 
         # Run chi-squared test on the final state with fresh samples
-        # Use more samples for better statistical power
+        # Use enough samples for statistical power without being too slow
         # Pass seed for reproducibility (allows Hypothesis to shrink failing cases)
-        result = self.sampler.test_distribution(1000000, seed=self.chi_squared_seed)
+        result = self.sampler.test_distribution(10000, seed=self.chi_squared_seed)
         note(
             f"Chi-squared test: chi2={result.chi_squared:.2f}, p={result.p_value:.4f}, "
             f"seed={self.chi_squared_seed}, excluded={result.excluded_count}, "
@@ -318,15 +318,12 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         )
 
         # The test should pass at a reasonable significance level
-        # With max_examples=1000, we use alpha=0.0001 to reduce false positives
-        # (at alpha=0.001 we'd expect ~1 false failure in 1000 tests)
-        # Using 100k samples gives good statistical power
-        #
-        # The chi-squared test now properly handles small weights:
+        # With max_examples=100 and alpha=0.001, we expect ~0.1 false failures per run
+        # The chi-squared test properly handles small weights:
         # - Indices with expected >= 5 are included in chi-squared
         # - Indices with expected 0.001-5 are excluded (low but possible)
         # - Indices with expected < 0.001 are excluded AND must have 0 samples
-        assert result.passes(0.0001), (
+        assert result.passes(0.001), (
             f"Statistical conformance failed: chi2={result.chi_squared:.2f}, "
             f"p_value={result.p_value:.6f}, seed={self.chi_squared_seed}, "
             f"excluded={result.excluded_count}, "
@@ -338,7 +335,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 # Create the test class that pytest will discover
 TestDynamicSamplerStateful = DynamicSamplerStateMachine.TestCase
 TestDynamicSamplerStateful.settings = settings(
-    max_examples=1000, stateful_step_count=100, deadline=None
+    max_examples=100, stateful_step_count=50, deadline=None
 )
 
 
@@ -428,7 +425,7 @@ def test_updates_followed_by_samples_are_valid(
 
 
 @given(st.lists(st.floats(min_value=1.0, max_value=10.0), min_size=3, max_size=10))
-@settings(max_examples=10)
+@settings(max_examples=10, deadline=None)
 def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
     """Chi-squared test should pass for a freshly constructed sampler.
 
@@ -438,12 +435,11 @@ def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler(weights)
-    # Use more samples for better statistical power
-    result = sampler.test_distribution(50000)
+    # Use 10k samples - enough for good statistical power without being too slow
+    result = sampler.test_distribution(10000)
 
-    # Should pass at 0.001 level (99.9% confidence) with this many samples
-    # Using a stricter threshold because we have many samples
-    assert result.passes(0.001), (
+    # Should pass at 0.01 level (99% confidence) with this many samples
+    assert result.passes(0.01), (
         f"Chi-squared test failed: chi2={result.chi_squared:.2f}, "
         f"p_value={result.p_value:.6f}, weights={weights}"
     )

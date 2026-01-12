@@ -40,6 +40,19 @@ pub use stats::{chi_squared_from_counts, chi_squared_sf, ChiSquaredResult};
 pub use tree::Tree;
 pub use update::MutableTree;
 
+/// Sentinel value for deleted elements.
+///
+/// Deleted elements have their log-weight set to `NEG_INFINITY`,
+/// which corresponds to a weight of 0 (since log₂(0) = -∞).
+pub const DELETED_LOG_WEIGHT: f64 = f64::NEG_INFINITY;
+
+/// Check if a log-weight represents a deleted element.
+#[inline]
+#[must_use]
+pub fn is_deleted_weight(log_weight: f64) -> bool {
+    log_weight == DELETED_LOG_WEIGHT
+}
+
 /// Compute the range number j for a given log-weight.
 ///
 /// Given log₂(w), returns j such that w ∈ [2^(j-1), 2^j).
@@ -187,5 +200,29 @@ mod tests {
         let result = log_sum_exp([100.0, 0.0].into_iter());
         // 2^100 + 1 ≈ 2^100, so result should be very close to 100
         assert!((result - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_is_deleted_weight() {
+        assert!(is_deleted_weight(f64::NEG_INFINITY));
+        assert!(is_deleted_weight(DELETED_LOG_WEIGHT));
+        assert!(!is_deleted_weight(0.0));
+        assert!(!is_deleted_weight(-100.0));
+        assert!(!is_deleted_weight(100.0));
+    }
+
+    #[test]
+    fn test_log_sum_exp_with_deleted() {
+        // Deleted weights (NEG_INFINITY) should not contribute to the sum
+        let result = log_sum_exp([2.0, DELETED_LOG_WEIGHT, 2.0].into_iter());
+        // log₂(4 + 0 + 4) = log₂(8) = 3
+        assert!((result - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_log_sum_exp_all_deleted() {
+        // All deleted should return NEG_INFINITY
+        let result = log_sum_exp([DELETED_LOG_WEIGHT, DELETED_LOG_WEIGHT].into_iter());
+        assert!(result == f64::NEG_INFINITY);
     }
 }

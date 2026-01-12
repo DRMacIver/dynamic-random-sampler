@@ -25,7 +25,9 @@
 //!
 //! This achieves O(log* N) amortized expected update time.
 
-use crate::core::{compute_range_number, Level, OptimizationConfig, Tree};
+use crate::core::{
+    compute_range_number, is_deleted_weight, Level, OptimizationConfig, Tree, DELETED_LOG_WEIGHT,
+};
 
 /// A mutable tree that supports weight updates.
 ///
@@ -78,10 +80,16 @@ impl MutableTree {
             .filter_map(|i| tree.element_log_weight(i))
             .collect();
 
-        // Cache the range number for each element
+        // Cache the range number for each element (use i32::MIN for deleted elements)
         let element_ranges: Vec<i32> = element_log_weights
             .iter()
-            .map(|&lw| compute_range_number(lw))
+            .map(|&lw| {
+                if is_deleted_weight(lw) {
+                    i32::MIN // Sentinel for deleted elements
+                } else {
+                    compute_range_number(lw)
+                }
+            })
             .collect();
 
         let config = *tree.config();
@@ -177,6 +185,10 @@ impl MutableTree {
     /// - If the new weight is outside the tolerated interval, the element
     ///   moves to a new range and changes propagate up
     ///
+    /// Special cases:
+    /// - Setting weight to zero (`NEG_INFINITY`) is equivalent to `delete()`
+    /// - Updating a deleted element to positive weight "undeletes" it
+    ///
     /// # Arguments
     /// * `index` - The element index
     /// * `new_log_weight` - The new log₂ weight
@@ -188,10 +200,36 @@ impl MutableTree {
             return false;
         }
 
+        // Handle deletion case
+        if is_deleted_weight(new_log_weight) {
+            return self.delete(index);
+        }
+
+        let was_deleted = self.is_deleted(index);
         let old_range = self.element_ranges[index];
 
         // Update the element weight
         self.element_log_weights[index] = new_log_weight;
+
+        // Handle undelete case - restoring a deleted element
+        if was_deleted {
+            let new_range = compute_range_number(new_log_weight);
+            self.element_ranges[index] = new_range;
+
+            // Insert into level 1
+            if self.levels.is_empty() {
+                let level1 = Level::with_config(1, self.config);
+                self.levels.push(level1);
+            }
+
+            if let Some(level) = self.levels.get_mut(0) {
+                level.insert_child(index, new_log_weight);
+            }
+
+            // Rebuild tree structure
+            self.rebuild_from_level(1);
+            return true;
+        }
 
         // Check if the new weight is within the tolerated interval of the current range
         // With tolerance b, range j accepts weights in [(1-b)·2^(j-1), (2+b)·2^(j-1))
@@ -236,6 +274,108 @@ impl MutableTree {
         !self
             .config
             .weight_in_tolerated_range(current_range, new_log_weight)
+    }
+
+    /// Soft-delete an element by setting its weight to zero.
+    ///
+    /// The element remains in the data structure but will never be sampled.
+    /// Its index remains valid and stable.
+    ///
+    /// # Arguments
+    /// * `index` - The element index to delete
+    ///
+    /// # Returns
+    /// `true` if the delete was successful, `false` if index is out of bounds
+    /// or element was already deleted.
+    pub fn delete(&mut self, index: usize) -> bool {
+        if index >= self.element_log_weights.len() {
+            return false;
+        }
+
+        // Already deleted?
+        if self.is_deleted(index) {
+            return true;
+        }
+
+        let old_range = self.element_ranges[index];
+
+        // Set to deleted
+        self.element_log_weights[index] = DELETED_LOG_WEIGHT;
+        self.element_ranges[index] = i32::MIN; // Sentinel for "no range"
+
+        // Remove from the range at level 1
+        if let Some(level) = self.levels.get_mut(0) {
+            level.remove_child(old_range, index);
+        }
+
+        // Rebuild tree structure
+        self.rebuild_from_level(1);
+        true
+    }
+
+    /// Check if an element has been deleted.
+    ///
+    /// # Arguments
+    /// * `index` - The element index to check
+    ///
+    /// # Returns
+    /// `true` if the element is deleted, `false` otherwise (including if out of bounds).
+    #[must_use]
+    pub fn is_deleted(&self, index: usize) -> bool {
+        self.element_log_weights
+            .get(index)
+            .is_some_and(|&w| is_deleted_weight(w))
+    }
+
+    /// Get the number of active (non-deleted) elements.
+    #[must_use]
+    pub fn active_count(&self) -> usize {
+        self.element_log_weights
+            .iter()
+            .filter(|&&w| !is_deleted_weight(w))
+            .count()
+    }
+
+    /// Insert a new element with the given log-weight.
+    ///
+    /// The new element is appended and gets the next available index.
+    ///
+    /// # Arguments
+    /// * `log_weight` - The log₂ of the new element's weight
+    ///
+    /// # Returns
+    /// The index of the newly inserted element.
+    pub fn insert(&mut self, log_weight: f64) -> usize {
+        let new_index = self.element_log_weights.len();
+
+        // Add to element storage
+        self.element_log_weights.push(log_weight);
+
+        // Handle deleted elements (NEG_INFINITY)
+        if is_deleted_weight(log_weight) {
+            self.element_ranges.push(i32::MIN);
+            return new_index;
+        }
+
+        // Compute and cache range number
+        let range_number = compute_range_number(log_weight);
+        self.element_ranges.push(range_number);
+
+        // Insert into level 1
+        if self.levels.is_empty() {
+            // First element - create level 1
+            let level1 = Level::with_config(1, self.config);
+            self.levels.push(level1);
+        }
+
+        if let Some(level) = self.levels.get_mut(0) {
+            level.insert_child(new_index, log_weight);
+        }
+
+        // Rebuild tree structure from level 1
+        self.rebuild_from_level(1);
+
+        new_index
     }
 
     /// Propagate weight changes up the tree when an element's weight changes
@@ -732,5 +872,209 @@ mod tests {
         let fraction = f64::from(u32::try_from(count0).unwrap())
             / f64::from(u32::try_from(samples.len()).unwrap());
         assert!(fraction > 0.99, "fraction was {fraction}");
+    }
+
+    // -------------------------------------------------------------------------
+    // Delete Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_single_element() {
+        let mut tree = MutableTree::new(vec![1.0, 2.0]);
+        assert!(!tree.is_deleted(0));
+        assert!(tree.delete(0));
+        assert!(tree.is_deleted(0));
+    }
+
+    #[test]
+    fn test_delete_out_of_bounds() {
+        let mut tree = MutableTree::new(vec![1.0]);
+        assert!(!tree.delete(5));
+    }
+
+    #[test]
+    fn test_delete_already_deleted() {
+        let mut tree = MutableTree::new(vec![1.0]);
+        assert!(tree.delete(0));
+        assert!(tree.delete(0)); // Should return true (already deleted)
+    }
+
+    #[test]
+    fn test_is_deleted_out_of_bounds() {
+        let tree = MutableTree::new(vec![1.0]);
+        assert!(!tree.is_deleted(5));
+    }
+
+    #[test]
+    fn test_active_count() {
+        let mut tree = MutableTree::new(vec![1.0, 2.0, 3.0]);
+        assert_eq!(tree.active_count(), 3);
+
+        tree.delete(1);
+        assert_eq!(tree.active_count(), 2);
+
+        tree.delete(0);
+        assert_eq!(tree.active_count(), 1);
+    }
+
+    #[test]
+    fn test_deleted_element_not_sampled() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut tree = MutableTree::new(vec![0.0, 0.0]); // equal weights
+
+        // Delete element 0
+        tree.delete(0);
+
+        // Sample many times - should only get element 1
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        for _ in 0..1000 {
+            let sample_result = sample(&immutable, &mut rng);
+            assert_eq!(sample_result, Some(1), "Sampled deleted element!");
+        }
+    }
+
+    #[test]
+    fn test_delete_all_elements() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut tree = MutableTree::new(vec![1.0, 2.0]);
+        tree.delete(0);
+        tree.delete(1);
+
+        assert_eq!(tree.active_count(), 0);
+
+        // Sampling should return None
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        assert_eq!(sample(&immutable, &mut rng), None);
+    }
+
+    // -------------------------------------------------------------------------
+    // Insert Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_insert_to_empty_tree() {
+        let mut tree = MutableTree::new(vec![]);
+        assert_eq!(tree.len(), 0);
+
+        let idx = tree.insert(1.0);
+        assert_eq!(idx, 0);
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree.element_log_weight(0), Some(1.0));
+    }
+
+    #[test]
+    fn test_insert_multiple() {
+        let mut tree = MutableTree::new(vec![1.0]);
+        assert_eq!(tree.len(), 1);
+
+        let idx1 = tree.insert(2.0);
+        assert_eq!(idx1, 1);
+        assert_eq!(tree.len(), 2);
+
+        let idx2 = tree.insert(3.0);
+        assert_eq!(idx2, 2);
+        assert_eq!(tree.len(), 3);
+    }
+
+    #[test]
+    fn test_insert_and_sample() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut tree = MutableTree::new(vec![0.0]); // weight 1
+
+        // Insert element with much higher weight
+        let idx = tree.insert(10.0); // weight 1024
+        assert_eq!(idx, 1);
+
+        // New element should dominate sampling
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        let samples: Vec<_> = (0..1000)
+            .filter_map(|_| sample(&immutable, &mut rng))
+            .collect();
+
+        let count1 = samples.iter().filter(|&&x| x == 1).count();
+        let fraction = f64::from(u32::try_from(count1).unwrap()) / 1000.0;
+        assert!(fraction > 0.99, "fraction was {fraction}");
+    }
+
+    #[test]
+    fn test_insert_deleted() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        let mut tree = MutableTree::new(vec![1.0]);
+        let idx = tree.insert(DELETED_LOG_WEIGHT);
+
+        assert_eq!(idx, 1);
+        assert!(tree.is_deleted(1));
+        assert_eq!(tree.active_count(), 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Undelete Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_undelete_via_update() {
+        let mut tree = MutableTree::new(vec![1.0, 2.0]);
+
+        // Delete element 0
+        tree.delete(0);
+        assert!(tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 1);
+
+        // Undelete by updating to positive weight
+        tree.update(0, 3.0);
+        assert!(!tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 2);
+        assert_eq!(tree.element_log_weight(0), Some(3.0));
+    }
+
+    #[test]
+    fn test_undelete_and_sample() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut tree = MutableTree::new(vec![0.0, 0.0]); // equal weights
+
+        // Delete element 0
+        tree.delete(0);
+
+        // Undelete with much higher weight
+        tree.update(0, 10.0);
+
+        // Element 0 should now dominate
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        let samples: Vec<_> = (0..1000)
+            .filter_map(|_| sample(&immutable, &mut rng))
+            .collect();
+
+        let count0 = samples.iter().filter(|&&x| x == 0).count();
+        let fraction = f64::from(u32::try_from(count0).unwrap()) / 1000.0;
+        assert!(fraction > 0.99, "fraction was {fraction}");
+    }
+
+    #[test]
+    fn test_update_to_deleted() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        let mut tree = MutableTree::new(vec![1.0, 2.0]);
+
+        // Update to NEG_INFINITY should delete
+        tree.update(0, DELETED_LOG_WEIGHT);
+        assert!(tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 1);
     }
 }

@@ -17,7 +17,9 @@
 
 use std::collections::HashMap;
 
-use crate::core::{compute_range_number, log_sum_exp, OptimizationConfig, Range};
+use crate::core::{
+    compute_range_number, is_deleted_weight, log_sum_exp, OptimizationConfig, Range,
+};
 
 /// A unique identifier for a range within a level.
 pub type RangeId = usize;
@@ -119,11 +121,16 @@ impl Level {
     /// Insert a child into the appropriate range based on its log-weight.
     ///
     /// Automatically determines the range number from the log-weight.
+    /// Deleted elements (with `NEG_INFINITY` log-weight) are skipped.
     ///
     /// # Arguments
     /// * `child_index` - The child's index
     /// * `child_log_weight` - The log₂ of the child's weight
     pub fn insert_child(&mut self, child_index: usize, child_log_weight: f64) {
+        // Skip deleted elements - they should not be in any range
+        if is_deleted_weight(child_log_weight) {
+            return;
+        }
         let range_number = compute_range_number(child_log_weight);
         let range = self.get_or_create_range(range_number);
         range.add_child(child_index, child_log_weight);
@@ -553,5 +560,44 @@ mod tests {
         let total2 = level.root_total_log_weight();
 
         assert!(total2 > total1); // Added another root
+    }
+
+    // -------------------------------------------------------------------------
+    // Deleted Element Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_insert_deleted_element_skipped() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        let mut level = Level::new(1);
+
+        // Insert a deleted element (NEG_INFINITY)
+        level.insert_child(0, DELETED_LOG_WEIGHT);
+
+        // Should not create any ranges
+        assert!(level.is_empty());
+        assert_eq!(level.range_count(), 0);
+    }
+
+    #[test]
+    fn test_mix_of_deleted_and_active() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        let mut level = Level::new(1);
+
+        // Insert mix of active and deleted
+        level.insert_child(0, 1.0); // active, range 2
+        level.insert_child(1, DELETED_LOG_WEIGHT); // deleted, skipped
+        level.insert_child(2, 2.0); // active, range 3
+
+        // Only 2 ranges should exist
+        assert_eq!(level.range_count(), 2);
+        assert!(level.get_range(2).is_some());
+        assert!(level.get_range(3).is_some());
+
+        // Each range should have only 1 element
+        assert_eq!(level.get_range(2).unwrap().degree(), 1);
+        assert_eq!(level.get_range(3).unwrap().degree(), 1);
     }
 }
