@@ -25,6 +25,7 @@
 //!
 //! This achieves O(log* N) amortized expected update time.
 
+use crate::core::debug::TimeoutGuard;
 use crate::core::{
     compute_range_number, is_deleted_weight, Level, OptimizationConfig, Tree, DELETED_LOG_WEIGHT,
 };
@@ -212,6 +213,7 @@ impl MutableTree {
         self.element_log_weights[index] = new_log_weight;
 
         // Handle undelete case - restoring a deleted element
+        // This is like an insert but at an existing index
         if was_deleted {
             let new_range = compute_range_number(new_log_weight);
             self.element_ranges[index] = new_range;
@@ -222,12 +224,29 @@ impl MutableTree {
                 self.levels.push(level1);
             }
 
+            // Check if range was root before insertion
+            let was_root = self
+                .levels
+                .first()
+                .is_some_and(|l| l.is_root_range(new_range));
+
             if let Some(level) = self.levels.get_mut(0) {
                 level.insert_child(index, new_log_weight);
             }
 
-            // Rebuild tree structure
-            self.rebuild_from_level(1);
+            // Check if range is now non-root
+            let is_non_root = self
+                .levels
+                .first()
+                .is_some_and(|l| !l.is_root_range(new_range));
+
+            // Propagate structural change if needed
+            if was_root && is_non_root {
+                self.propagate_insert(1, new_range, new_log_weight);
+            } else if !was_root && is_non_root {
+                self.propagate_weight_changes(1, new_range);
+            }
+
             return true;
         }
 
@@ -279,7 +298,7 @@ impl MutableTree {
     /// Soft-delete an element by setting its weight to zero.
     ///
     /// The element remains in the data structure but will never be sampled.
-    /// Its index remains valid and stable.
+    /// Its index remains valid and stable. Uses incremental O(log* N) propagation.
     ///
     /// # Arguments
     /// * `index` - The element index to delete
@@ -288,6 +307,8 @@ impl MutableTree {
     /// `true` if the delete was successful, `false` if index is out of bounds
     /// or element was already deleted.
     pub fn delete(&mut self, index: usize) -> bool {
+        let _guard = TimeoutGuard::new("delete");
+
         if index >= self.element_log_weights.len() {
             return false;
         }
@@ -299,6 +320,12 @@ impl MutableTree {
 
         let old_range = self.element_ranges[index];
 
+        // Check if range was non-root before deletion
+        let was_non_root = self
+            .levels
+            .first()
+            .is_some_and(|l| !l.is_root_range(old_range));
+
         // Set to deleted
         self.element_log_weights[index] = DELETED_LOG_WEIGHT;
         self.element_ranges[index] = i32::MIN; // Sentinel for "no range"
@@ -308,9 +335,74 @@ impl MutableTree {
             level.remove_child(old_range, index);
         }
 
-        // Rebuild tree structure
-        self.rebuild_from_level(1);
+        // Check if range is now root (or empty)
+        let is_root_or_empty = self
+            .levels
+            .first()
+            .is_none_or(|l| l.is_root_range(old_range) || l.get_range(old_range).is_none());
+
+        // If range transitioned from non-root to root/empty, propagate deletion
+        if was_non_root && is_root_or_empty {
+            self.propagate_delete(1, old_range);
+        } else if was_non_root {
+            // Still non-root, just update the weight in parent
+            self.propagate_weight_changes(1, old_range);
+        }
+
         true
+    }
+
+    /// Propagate structural change when a range becomes root or empty.
+    /// This removes the range from the parent level and continues propagating up.
+    fn propagate_delete(&mut self, level_num: usize, range_number: i32) {
+        let _guard = TimeoutGuard::new("propagate_delete");
+
+        // If no parent level exists, nothing to do
+        if level_num >= self.levels.len() {
+            return;
+        }
+
+        // Get the parent range number by looking at where this range is stored
+        // The range is stored as a child in a parent range at level_num + 1
+        // with child_idx = range_number
+        #[allow(clippy::cast_sign_loss)]
+        let child_idx = range_number as usize;
+
+        // Find which parent range contains this child
+        let parent_range_number = self.levels.get(level_num).and_then(|l| {
+            l.ranges()
+                .find(|(_, r)| r.children().any(|(idx, _)| idx == child_idx))
+                .map(|(j, _)| j)
+        });
+
+        let Some(parent_range) = parent_range_number else {
+            return; // Child not found in any parent range
+        };
+
+        // Check if parent range was non-root before
+        let parent_was_non_root = self
+            .levels
+            .get(level_num)
+            .is_some_and(|l| !l.is_root_range(parent_range));
+
+        // Remove this range from the parent level
+        if let Some(parent_level) = self.levels.get_mut(level_num) {
+            parent_level.remove_child(parent_range, child_idx);
+        }
+
+        // Check if parent is now root (or empty)
+        let parent_is_root_or_empty = self
+            .levels
+            .get(level_num)
+            .is_none_or(|l| l.is_root_range(parent_range) || l.get_range(parent_range).is_none());
+
+        // Propagate up if parent changed from non-root to root/empty
+        if parent_was_non_root && parent_is_root_or_empty {
+            self.propagate_delete(level_num + 1, parent_range);
+        } else if parent_was_non_root {
+            // Still non-root, just update weight
+            self.propagate_weight_changes(level_num, parent_range);
+        }
     }
 
     /// Check if an element has been deleted.
@@ -339,6 +431,7 @@ impl MutableTree {
     /// Insert a new element with the given log-weight.
     ///
     /// The new element is appended and gets the next available index.
+    /// Uses incremental O(log* N) propagation instead of full rebuild.
     ///
     /// # Arguments
     /// * `log_weight` - The log₂ of the new element's weight
@@ -346,6 +439,8 @@ impl MutableTree {
     /// # Returns
     /// The index of the newly inserted element.
     pub fn insert(&mut self, log_weight: f64) -> usize {
+        let _guard = TimeoutGuard::new("insert");
+
         let new_index = self.element_log_weights.len();
 
         // Add to element storage
@@ -368,14 +463,79 @@ impl MutableTree {
             self.levels.push(level1);
         }
 
+        // Check if range was root before insertion
+        let was_root = self
+            .levels
+            .first()
+            .is_some_and(|l| l.is_root_range(range_number));
+
         if let Some(level) = self.levels.get_mut(0) {
             level.insert_child(new_index, log_weight);
         }
 
-        // Rebuild tree structure from level 1
-        self.rebuild_from_level(1);
+        // Check if range is now non-root (transitioned from root)
+        let is_non_root = self
+            .levels
+            .first()
+            .is_some_and(|l| !l.is_root_range(range_number));
+
+        // Only propagate if structure changed (root -> non-root)
+        if was_root && is_non_root {
+            self.propagate_insert(1, range_number, log_weight);
+        } else if !was_root && is_non_root {
+            // Range was already non-root, just update its weight in parent
+            self.propagate_weight_changes(1, range_number);
+        }
 
         new_index
+    }
+
+    /// Propagate structural change when a range becomes non-root.
+    /// This adds the range to the next level and continues propagating up.
+    fn propagate_insert(&mut self, level_num: usize, range_number: i32, range_log_weight: f64) {
+        let _guard = TimeoutGuard::new("propagate_insert");
+
+        // Ensure next level exists
+        if level_num >= self.levels.len() {
+            let next_level = Level::with_config(level_num + 1, self.config);
+            self.levels.push(next_level);
+        }
+
+        // Get the parent range number for this range's total weight
+        let total_weight = self
+            .levels
+            .get(level_num - 1)
+            .and_then(|l| l.get_range(range_number))
+            .map_or(
+                range_log_weight,
+                super::range::Range::compute_total_log_weight,
+            );
+
+        let parent_range_number = compute_range_number(total_weight);
+
+        // Check if parent range was root before
+        let parent_was_root = self
+            .levels
+            .get(level_num)
+            .is_some_and(|l| l.is_root_range(parent_range_number));
+
+        // Add or update this range in the parent level
+        #[allow(clippy::cast_sign_loss)]
+        let child_idx = range_number as usize;
+        if let Some(parent_level) = self.levels.get_mut(level_num) {
+            parent_level.upsert_child(child_idx, total_weight);
+        }
+
+        // Check if parent is now non-root
+        let parent_is_non_root = self
+            .levels
+            .get(level_num)
+            .is_some_and(|l| !l.is_root_range(parent_range_number));
+
+        // Propagate up if parent changed from root to non-root
+        if parent_was_root && parent_is_non_root {
+            self.propagate_insert(level_num + 1, parent_range_number, total_weight);
+        }
     }
 
     /// Propagate weight changes up the tree when an element's weight changes
@@ -426,10 +586,45 @@ impl MutableTree {
     }
 
     /// Propagate structural changes when an element moves between ranges.
-    fn propagate_structure_changes(&mut self, level_num: usize, _old_range: i32, _new_range: i32) {
-        // Rebuild the tree from level_num upward for simplicity
-        // This is less efficient than incremental updates but ensures correctness
-        self.rebuild_from_level(level_num);
+    /// `old_range` may transition to root (like delete), `new_range` may transition to non-root (like insert).
+    fn propagate_structure_changes(&mut self, level_num: usize, old_range: i32, new_range: i32) {
+        let _guard = TimeoutGuard::new("propagate_structure_changes");
+
+        // Check old range: did it transition from non-root to root?
+        let old_is_root_or_empty = self
+            .levels
+            .get(level_num - 1)
+            .is_none_or(|l| l.is_root_range(old_range) || l.get_range(old_range).is_none());
+
+        // The element was already removed from old_range by update()
+        // If old_range became root/empty, propagate deletion
+        // (We assume it was non-root before, otherwise no structural change needed)
+        if old_is_root_or_empty && level_num <= self.levels.len() {
+            self.propagate_delete(level_num, old_range);
+        }
+
+        // Check new range: did it transition from root to non-root?
+        let new_is_non_root = self
+            .levels
+            .get(level_num - 1)
+            .is_some_and(|l| !l.is_root_range(new_range));
+
+        // If new_range became non-root, we need to add it to the parent level
+        // Get the total weight of the new range
+        if new_is_non_root {
+            let total_weight = self
+                .levels
+                .get(level_num - 1)
+                .and_then(|l| l.get_range(new_range))
+                .map_or(
+                    f64::NEG_INFINITY,
+                    super::range::Range::compute_total_log_weight,
+                );
+
+            if !is_deleted_weight(total_weight) {
+                self.propagate_insert(level_num, new_range, total_weight);
+            }
+        }
     }
 
     /// Rebuild the tree from a given level upward.

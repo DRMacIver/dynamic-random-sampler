@@ -136,6 +136,67 @@ impl Level {
         range.add_child(child_index, child_log_weight);
     }
 
+    /// Insert or update a child in this level.
+    ///
+    /// If the child already exists in some range:
+    /// - If it's in the correct range (based on weight), update the weight
+    /// - If it's in the wrong range, move it to the correct range
+    ///
+    /// If the child doesn't exist, insert it into the correct range.
+    ///
+    /// # Arguments
+    /// * `child_index` - The child's index
+    /// * `child_log_weight` - The log₂ of the child's weight
+    pub fn upsert_child(&mut self, child_index: usize, child_log_weight: f64) {
+        // Skip deleted elements
+        if is_deleted_weight(child_log_weight) {
+            return;
+        }
+
+        let target_range = compute_range_number(child_log_weight);
+
+        // Check if child exists in any range
+        let current_range = self.find_child_range(child_index);
+
+        match current_range {
+            Some(range_num) if range_num == target_range => {
+                // Child is in correct range, just update weight
+                if let Some(range) = self.ranges.get_mut(&range_num) {
+                    range.update_child_weight(child_index, child_log_weight);
+                    self.cached_root_total_log_weight = None;
+                }
+            }
+            Some(old_range) => {
+                // Child is in wrong range, move it
+                self.remove_child(old_range, child_index);
+                let range = self.get_or_create_range(target_range);
+                range.add_child(child_index, child_log_weight);
+            }
+            None => {
+                // Child doesn't exist, insert it
+                let range = self.get_or_create_range(target_range);
+                range.add_child(child_index, child_log_weight);
+            }
+        }
+    }
+
+    /// Find which range contains a child, if any.
+    ///
+    /// # Arguments
+    /// * `child_index` - The child's index
+    ///
+    /// # Returns
+    /// The range number containing the child, or None if not found
+    #[must_use]
+    pub fn find_child_range(&self, child_index: usize) -> Option<i32> {
+        for (&range_number, range) in &self.ranges {
+            if range.children().any(|(idx, _)| idx == child_index) {
+                return Some(range_number);
+            }
+        }
+        None
+    }
+
     /// Remove a child from its range.
     ///
     /// # Arguments

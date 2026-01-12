@@ -28,15 +28,15 @@ develop *ARGS:
 # Install dependencies (Rust + Python)
 install:
     uv sync --group dev
-    maturin develop
+    uv run maturin develop
 
 # Build Rust extension
 build:
-    maturin develop
+    uv run maturin develop
 
 # Build Rust extension in release mode
 build-release:
-    maturin develop --release
+    uv run maturin develop --release
 
 # Run all tests (Python tests cover both Rust and Python)
 test:

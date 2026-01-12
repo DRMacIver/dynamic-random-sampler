@@ -140,6 +140,18 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         note(f"Initialized with {len(weights)} weights: {weights[:5]}...")
         note(f"Chi-squared seed: {seed}")
 
+    @rule(
+        n_to_add=st.integers(1, 100),  # Limited to 100 to avoid O(N^2) insert cost
+        weight=st.floats(min_value=0.1, max_value=1e6)  # Reasonable range
+    )
+    @precondition(lambda self: self.sampler is not None)
+    def add_many_weights(self, n_to_add: int, weight: float) -> None:
+        """Add multiple weights with the same value."""
+        for _ in range(n_to_add):
+            self.sampler.insert(weight)
+        self.weights.extend([weight] * n_to_add)
+        note(f"Added {n_to_add} weights with value {weight:.2e}")
+
     @rule(index=indices, new_weight=st.floats(min_value=0.1, max_value=100.0))
     @precondition(lambda self: self.sampler is not None and len(self.weights) > 0)
     def update_weight(self, index: int, new_weight: float) -> None:
