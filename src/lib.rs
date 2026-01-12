@@ -312,14 +312,9 @@ mod python_bindings {
 
             // Calculate expected counts and identify excluded indices
             // Chi-squared test requires expected counts >= ~5 for validity
-            // We use two thresholds:
-            // - MIN_EXPECTED_CHI2: exclude from chi-squared test (low but possible)
-            // - MIN_EXPECTED_FAIL: if we see samples here, it's a definite failure
-            //   This must be extremely small because with many low-weight elements,
-            //   even tiny individual probabilities can collectively yield samples.
-            //   With 1000 elements at expected=1e-9, P(any sampled) ≈ 1e-6.
+            // We exclude low-expected elements from chi-squared but still allow samples.
+            // Only truly zero-weight elements (deleted) should never be sampled.
             const MIN_EXPECTED_CHI2: f64 = 5.0; // Standard chi-squared assumption
-            const MIN_EXPECTED_FAIL: f64 = 1e-9; // Only fail for truly impossible samples
             #[allow(clippy::cast_precision_loss)] // Acceptable for statistical calculations
             let num_samples_f64 = num_samples as f64;
 
@@ -334,11 +329,11 @@ mod python_bindings {
                     // Include in chi-squared test
                     included_observed.push(observed[i]);
                     included_weights.push(w);
-                } else if expected >= MIN_EXPECTED_FAIL {
-                    // Low but possible - exclude from chi-squared but don't fail if sampled
+                } else if w > 0.0 {
+                    // Low but non-zero weight - exclude from chi-squared, sampling is valid
                     excluded_count += 1;
                 } else {
-                    // Effectively zero - should never be sampled
+                    // Zero weight (deleted element) - should never be sampled
                     excluded_count += 1;
                     if observed[i] > 0 {
                         unexpected_samples += observed[i];
