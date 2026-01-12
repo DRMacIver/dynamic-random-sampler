@@ -5,15 +5,15 @@
 //! At higher levels, ranges contain ranges from the previous level.
 //!
 //! Key components from the paper:
-//! - Level table `T_ℓ`: Contains root ranges at level ℓ
-//! - Internal ranges: Ranges with degree ≥ d that have parents in the next level
-//! - `weight(T_ℓ)`: Total weight of all root ranges at level ℓ
+//! - Level table `$T_\ell$`: Contains root ranges at level `$\ell$`
+//! - Internal ranges: Ranges with degree `$\geq d$` that have parents in the next level
+//! - `$\text{weight}(T_\ell)$`: Total weight of all root ranges at level `$\ell$`
 //!
 //! # Section 4 Optimizations
 //!
 //! With Section 4 optimizations, the definition of root vs non-root changes:
-//! - **Basic (b=0, d=2)**: Root ranges have degree 1, non-roots have degree ≥ 2
-//! - **Optimized (b=0.4, d=32)**: Root ranges have degree < 32, non-roots have degree ≥ 32
+//! - **Basic (b=0, d=2)**: Root ranges have degree 1, non-roots have degree >= 2
+//! - **Optimized (b=0.4, d=32)**: Root ranges have degree < 32, non-roots have degree >= 32
 
 use std::collections::HashMap;
 
@@ -32,13 +32,13 @@ pub type RangeId = usize;
 /// With Section 4 optimizations, the degree bound `d` determines which ranges
 /// are roots vs non-roots:
 /// - Root ranges: degree < d
-/// - Non-root ranges: degree ≥ d
+/// - Non-root ranges: degree `$\geq d$`
 #[derive(Debug)]
 pub struct Level {
     /// The level number (1-indexed; level 0 is the implicit element level)
     level_number: usize,
     /// All ranges at this level, keyed by their range number j
-    /// A range `R_j^(ℓ)` is stored at key j
+    /// A range `$R_j^{(\ell)}$` is stored at key j
     ranges: HashMap<i32, Range>,
     /// Cache of total weight of all root ranges
     cached_root_total_log_weight: Option<f64>,
@@ -50,7 +50,7 @@ impl Level {
     /// Create a new empty level with basic configuration (d=2).
     ///
     /// # Arguments
-    /// * `level_number` - The level number (must be ≥ 1)
+    /// * `level_number` - The level number (must be >= 1)
     #[must_use]
     pub fn new(level_number: usize) -> Self {
         Self::with_config(level_number, OptimizationConfig::basic())
@@ -59,7 +59,7 @@ impl Level {
     /// Create a new empty level with custom optimization configuration.
     ///
     /// # Arguments
-    /// * `level_number` - The level number (must be ≥ 1)
+    /// * `level_number` - The level number (must be >= 1)
     /// * `config` - The optimization configuration
     #[must_use]
     pub fn with_config(level_number: usize, config: OptimizationConfig) -> Self {
@@ -125,7 +125,7 @@ impl Level {
     ///
     /// # Arguments
     /// * `child_index` - The child's index
-    /// * `child_log_weight` - The log₂ of the child's weight
+    /// * `child_log_weight` - The `$\log_2$` of the child's weight
     pub fn insert_child(&mut self, child_index: usize, child_log_weight: f64) {
         // Skip deleted elements - they should not be in any range
         if is_deleted_weight(child_log_weight) {
@@ -146,7 +146,7 @@ impl Level {
     ///
     /// # Arguments
     /// * `child_index` - The child's index
-    /// * `child_log_weight` - The log₂ of the child's weight
+    /// * `child_log_weight` - The `$\log_2$` of the child's weight
     pub fn upsert_child(&mut self, child_index: usize, child_log_weight: f64) {
         // Skip deleted elements
         if is_deleted_weight(child_log_weight) {
@@ -244,7 +244,7 @@ impl Level {
 
     /// Get all non-root ranges at this level.
     ///
-    /// Non-root ranges have degree ≥ `min_degree` and will have parents at the next level.
+    /// Non-root ranges have degree >= `min_degree` and will have parents at the next level.
     /// With basic config (d=2), this means degree >= 2.
     /// With optimized config (d=32), this means degree >= 32.
     pub fn non_root_ranges(&self) -> impl Iterator<Item = (i32, &Range)> + '_ {
@@ -263,7 +263,7 @@ impl Level {
             .count()
     }
 
-    /// Get the number of non-root ranges (ranges with degree ≥ `min_degree`).
+    /// Get the number of non-root ranges (ranges with degree >= `min_degree`).
     #[must_use]
     pub fn non_root_count(&self) -> usize {
         self.ranges
@@ -272,7 +272,7 @@ impl Level {
             .count()
     }
 
-    /// Compute the total log-weight of all root ranges (weight of `T_ℓ`).
+    /// Compute the total log-weight of all root ranges (weight of `$T_\ell$`).
     ///
     /// This is used in Step 1 of the sampling algorithm.
     /// Root ranges are those with degree < `min_degree`.
@@ -312,7 +312,7 @@ impl Level {
 
     /// Get the sum of `2^j` for all non-empty root ranges.
     ///
-    /// This is the `roots(T_ℓ)` value from the paper, used to find
+    /// This is the `$\text{roots}(T_\ell)$` value from the paper, used to find
     /// the first (largest) root range number.
     #[must_use]
     pub fn roots_sum(&self) -> f64 {
@@ -395,7 +395,7 @@ mod tests {
     fn test_insert_child_creates_range() {
         let mut level = Level::new(1);
 
-        // Insert child with weight 2 (log₂(2) = 1) → range 2
+        // Insert child with weight 2 (log_2(2) = 1) -> range 2
         level.insert_child(0, 1.0);
 
         assert_eq!(level.range_count(), 1);
@@ -407,7 +407,7 @@ mod tests {
     fn test_insert_multiple_children_same_range() {
         let mut level = Level::new(1);
 
-        // Insert children with weights in [2, 4) → range 2
+        // Insert children with weights in [2, 4) -> range 2
         level.insert_child(0, 1.0); // weight 2
         level.insert_child(1, 1.5); // weight ~2.83
         level.insert_child(2, 1.9); // weight ~3.73
@@ -422,9 +422,9 @@ mod tests {
         let mut level = Level::new(1);
 
         // Insert children with different weight ranges
-        level.insert_child(0, 0.0); // weight 1 → range 1
-        level.insert_child(1, 1.0); // weight 2 → range 2
-        level.insert_child(2, 2.0); // weight 4 → range 3
+        level.insert_child(0, 0.0); // weight 1 -> range 1
+        level.insert_child(1, 1.0); // weight 2 -> range 2
+        level.insert_child(2, 2.0); // weight 4 -> range 3
 
         assert_eq!(level.range_count(), 3);
         assert!(level.get_range(1).is_some());
@@ -464,9 +464,9 @@ mod tests {
     fn test_root_vs_non_root_ranges() {
         let mut level = Level::new(1);
 
-        // Single child → root range
+        // Single child -> root range
         level.insert_child(0, 1.0); // range 2, degree 1
-                                    // Multiple children → non-root range
+                                    // Multiple children -> non-root range
         level.insert_child(1, 2.0); // range 3
         level.insert_child(2, 2.5); // range 3
 
@@ -553,7 +553,7 @@ mod tests {
         let mut level = Level::new(1);
         level.insert_child(0, 1.0); // weight 2, range 2, root
         level.insert_child(1, 2.0); // weight 4, range 3
-        level.insert_child(2, 2.5); // weight ~5.66, range 3 → non-root
+        level.insert_child(2, 2.5); // weight ~5.66, range 3 -> non-root
 
         // Total of roots = 2 (only range 2)
         let total = level.root_total_log_weight().exp2();
@@ -567,8 +567,8 @@ mod tests {
     #[test]
     fn test_roots_sum() {
         let mut level = Level::new(1);
-        level.insert_child(0, 1.0); // range 2, root → contributes 2^2 = 4
-        level.insert_child(1, 0.0); // range 1, root → contributes 2^1 = 2
+        level.insert_child(0, 1.0); // range 2, root -> contributes 2^2 = 4
+        level.insert_child(1, 0.0); // range 1, root -> contributes 2^1 = 2
 
         let sum = level.roots_sum();
         assert!((sum - 6.0).abs() < 1e-10); // 4 + 2 = 6
@@ -600,9 +600,9 @@ mod tests {
     fn test_negative_range_numbers() {
         let mut level = Level::new(1);
 
-        // Weight 0.5 → log₂(0.5) = -1 → range 0
+        // Weight 0.5 -> log_2(0.5) = -1 -> range 0
         level.insert_child(0, -1.0);
-        // Weight 0.25 → log₂(0.25) = -2 → range -1
+        // Weight 0.25 -> log_2(0.25) = -2 -> range -1
         level.insert_child(1, -2.0);
 
         assert!(level.get_range(0).is_some());

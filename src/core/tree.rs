@@ -2,19 +2,19 @@
 //!
 //! This module implements the forest of trees as described in Section 2 of the paper.
 //! Elements are organized into ranges based on their weights, and ranges with
-//! multiple children (degree ≥ d) propagate up to higher levels, forming trees.
+//! multiple children (degree >= d) propagate up to higher levels, forming trees.
 //!
 //! Key concepts:
 //! - Level 0 (implicit): Contains the actual elements with their weights
 //! - Level 1+: Contains ranges that group children from the previous level
-//! - A range with degree < d becomes a "root" and is stored in the level table `T_ℓ`
-//! - A range with degree ≥ d has a parent in the next level
+//! - A range with degree < d becomes a "root" and is stored in the level table `$T_\ell$`
+//! - A range with degree >= d has a parent in the next level
 //!
-//! The tree has height at most L ≤ `log* N + 1`, where log\* is the iterated logarithm.
+//! The tree has height at most `$L \leq \log^* N + 1$`, where `$\log^*$` is the iterated logarithm.
 //!
 //! # Section 4 Optimizations
 //!
-//! With Section 4 optimizations enabled (d ≥ 16, b > 0):
+//! With Section 4 optimizations enabled (d >= 16, b > 0):
 //! - The degree bound d determines root vs non-root classification
 //! - Tolerance factor b allows lazy updates without parent changes
 //! - This achieves O(log* N) amortized update time
@@ -44,11 +44,11 @@ impl Tree {
     ///
     /// The tree is constructed bottom-up:
     /// 1. Insert elements into ranges at level 1 based on their weights
-    /// 2. For each level, ranges with degree ≥ d propagate to the next level
-    /// 3. Continue until no ranges have degree ≥ d
+    /// 2. For each level, ranges with degree >= d propagate to the next level
+    /// 3. Continue until no ranges have degree >= d
     ///
     /// # Arguments
-    /// * `log_weights` - The log₂ of each element's weight
+    /// * `log_weights` - The `$\log_2$` of each element's weight
     #[must_use]
     pub fn new(log_weights: Vec<f64>) -> Self {
         Self::with_config(log_weights, OptimizationConfig::basic())
@@ -59,7 +59,7 @@ impl Tree {
     /// Uses the paper's recommended values of b=0.4 and d=32.
     ///
     /// # Arguments
-    /// * `log_weights` - The log₂ of each element's weight
+    /// * `log_weights` - The `$\log_2$` of each element's weight
     #[must_use]
     pub fn new_optimized(log_weights: Vec<f64>) -> Self {
         Self::with_config(log_weights, OptimizationConfig::optimized())
@@ -69,11 +69,11 @@ impl Tree {
     ///
     /// The tree is constructed bottom-up:
     /// 1. Insert elements into ranges at level 1 based on their weights
-    /// 2. For each level, ranges with degree ≥ `min_degree` propagate to the next level
-    /// 3. Continue until no ranges have degree ≥ `min_degree`
+    /// 2. For each level, ranges with degree >= `min_degree` propagate to the next level
+    /// 3. Continue until no ranges have degree >= `min_degree`
     ///
     /// # Arguments
-    /// * `log_weights` - The log₂ of each element's weight
+    /// * `log_weights` - The `$\log_2$` of each element's weight
     /// * `config` - The optimization configuration
     #[must_use]
     pub fn with_config(log_weights: Vec<f64>, config: OptimizationConfig) -> Self {
@@ -194,7 +194,7 @@ impl Tree {
 
     /// Get the total log-weight of all root ranges at a given level.
     ///
-    /// This corresponds to `weight(T_ℓ)` in the paper.
+    /// This corresponds to `$\text{weight}(T_\ell)$` in the paper.
     #[must_use]
     pub fn level_root_total(&self, level_number: usize) -> f64 {
         self.get_level(level_number)
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_single_element_creates_root() {
-        let tree = Tree::new(vec![1.0]); // weight 2 → range 2
+        let tree = Tree::new(vec![1.0]); // weight 2 -> range 2
         let level1 = tree.get_level(1).unwrap();
         assert_eq!(level1.root_count(), 1);
         assert_eq!(level1.non_root_count(), 0);
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(tree.len(), 2);
 
         let level1 = tree.get_level(1).unwrap();
-        // One range with 2 elements → not a root
+        // One range with 2 elements -> not a root
         assert_eq!(level1.non_root_count(), 1);
 
         // Level 2 should exist with the range as a root
@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(tree.len(), 2);
 
         let level1 = tree.get_level(1).unwrap();
-        // Two ranges, each with 1 element → both are roots
+        // Two ranges, each with 1 element -> both are roots
         assert_eq!(level1.root_count(), 2);
         assert_eq!(level1.non_root_count(), 0);
 
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_level_building_stops_at_roots() {
-        // 4 elements all in the same range → should create multiple levels
+        // 4 elements all in the same range -> should create multiple levels
         let tree = Tree::new(vec![1.0, 1.1, 1.2, 1.3]); // all in range 2
 
         let level1 = tree.get_level(1).unwrap();
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_total_log_weight() {
-        let tree = Tree::new(vec![0.0, 1.0]); // weights 1, 2 → total 3
+        let tree = Tree::new(vec![0.0, 1.0]); // weights 1, 2 -> total 3
         let total = tree.total_log_weight().exp2();
         assert!((total - 3.0).abs() < 1e-10);
     }
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_iterate_levels() {
-        let tree = Tree::new(vec![1.0, 1.1]); // same range → 2 levels
+        let tree = Tree::new(vec![1.0, 1.1]); // same range -> 2 levels
         let level_nums: Vec<_> = tree.levels().map(Level::level_number).collect();
         assert_eq!(level_nums, vec![1, 2]);
     }
@@ -416,7 +416,7 @@ mod tests {
         let tree = Tree::new(vec![-10.0, 0.0, 10.0]); // weights 2^-10, 1, 2^10
         assert_eq!(tree.len(), 3);
 
-        // Each in a different range → all roots at level 1
+        // Each in a different range -> all roots at level 1
         let level1 = tree.get_level(1).unwrap();
         assert_eq!(level1.root_count(), 3);
     }
@@ -437,8 +437,8 @@ mod tests {
     fn test_tree_structure_consistency() {
         let tree = Tree::new(vec![0.0, 0.5, 1.0, 1.5, 2.0]);
 
-        // Every non-root range at level ℓ should have a corresponding
-        // child in level ℓ+1
+        // Every non-root range at level l should have a corresponding
+        // child in level l+1
         for level_num in 1..tree.max_level() {
             let level = tree.get_level(level_num).unwrap();
             let non_root_count = level.non_root_count();

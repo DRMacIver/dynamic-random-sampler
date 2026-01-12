@@ -1,6 +1,6 @@
 //! Range data structure for the dynamic random sampler.
 //!
-//! A Range `R_j^(ℓ)` represents a collection of elements at level ℓ whose weights
+//! A Range `$R_j^{(\ell)}$` represents a collection of elements at level `$\ell$` whose weights
 //! fall in the interval `[2^(j-1), 2^j)`. At level 1, these are actual elements;
 //! at higher levels, these are ranges from the previous level.
 //!
@@ -25,7 +25,7 @@ use crate::core::log_sum_exp;
 pub struct Child {
     /// Index of the child (element index at level 1, or range ID at higher levels)
     pub index: usize,
-    /// Log₂ of the child's weight
+    /// `$\log_2$` of the child's weight
     pub log_weight: f64,
 }
 
@@ -93,7 +93,7 @@ impl Range {
     ///
     /// # Arguments
     /// * `index` - The child's index (element index or range ID)
-    /// * `log_weight` - The log₂ of the child's weight
+    /// * `log_weight` - The `$\log_2$` of the child's weight
     ///
     /// # Panics
     /// Panics if a child with this index already exists. Use `update_child_weight` instead.
@@ -135,7 +135,7 @@ impl Range {
     ///
     /// # Arguments
     /// * `index` - The child's index
-    /// * `new_log_weight` - The new log₂ weight
+    /// * `new_log_weight` - The new `$\log_2$` weight
     ///
     /// # Returns
     /// The old log-weight, or None if child not found
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_add_child_to_range() {
         let mut range = Range::new(2);
-        range.add_child(0, 1.0); // log₂(2) = 1, so weight 2
+        range.add_child(0, 1.0); // log_2(2) = 1, so weight 2
         assert_eq!(range.degree(), 1);
         assert!(!range.is_empty());
     }
@@ -309,13 +309,13 @@ mod tests {
     fn test_total_weight_multiple_children() {
         let mut range = Range::new(2);
         range.add_child(0, 1.0); // weight 2
-        range.add_child(1, 2.0_f64.log2().log2()); // Actually, let me fix: log₂(3) ≈ 1.585
+        range.add_child(1, 2.0_f64.log2().log2()); // Actually, let me fix: log_2(3) ~= 1.585
                                                    // Let's use clearer values:
-                                                   // weight 2.0 has log₂ = 1.0
-                                                   // weight 3.0 has log₂ ≈ 1.585
+                                                   // weight 2.0 has log_2 = 1.0
+                                                   // weight 3.0 has log_2 ~= 1.585
         let mut range2 = Range::new(2);
         range2.add_child(0, 2.0_f64.log2()); // weight 2, log = 1
-        range2.add_child(1, 3.0_f64.log2()); // weight 3, log ≈ 1.585
+        range2.add_child(1, 3.0_f64.log2()); // weight 3, log ~= 1.585
         let total_weight = range2.total_log_weight().exp2();
         assert!((total_weight - 5.0).abs() < 1e-10);
     }
@@ -327,7 +327,7 @@ mod tests {
         range.add_child(0, 100.0); // 2^100
         range.add_child(1, 100.0); // 2^100
         let total_log = range.total_log_weight();
-        // Expected: log₂(2 * 2^100) = 101
+        // Expected: log_2(2 * 2^100) = 101
         assert!((total_log - 101.0).abs() < 1e-10);
     }
 

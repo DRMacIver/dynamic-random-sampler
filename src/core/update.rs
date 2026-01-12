@@ -15,11 +15,11 @@
 //!
 //! With Section 4 optimizations, we use tolerance-based "lazy updating":
 //!
-//! 1. Each range `R_j` tolerates weights in [(1-b)·2^(j-1), (2+b)·2^(j-1))
+//! 1. Each range `$R_j$` tolerates weights in `$[(1-b) \cdot 2^{j-1}, (2+b) \cdot 2^{j-1})$`
 //!    instead of just [2^(j-1), 2^j)
 //!
 //! 2. An element only changes its parent range when its weight moves
-//!    outside the tolerated interval (requires change of at least b·2^(j-1))
+//!    outside the tolerated interval (requires change of at least `$b \cdot 2^{j-1}$`)
 //!
 //! 3. The degree bound d >= 16 limits how many parent changes can cascade
 //!
@@ -192,7 +192,7 @@ impl MutableTree {
     ///
     /// # Arguments
     /// * `index` - The element index
-    /// * `new_log_weight` - The new log₂ weight
+    /// * `new_log_weight` - The new `$\log_2$` weight
     ///
     /// # Returns
     /// `true` if the update was successful, `false` if index is out of bounds.
@@ -251,7 +251,7 @@ impl MutableTree {
         }
 
         // Check if the new weight is within the tolerated interval of the current range
-        // With tolerance b, range j accepts weights in [(1-b)·2^(j-1), (2+b)·2^(j-1))
+        // With tolerance b, range j accepts weights in [(1-b)*2^(j-1), (2+b)*2^(j-1))
         let stays_in_range = self
             .config
             .weight_in_tolerated_range(old_range, new_log_weight);
@@ -283,7 +283,7 @@ impl MutableTree {
 
     /// Check if a weight change would require a parent change for the element.
     ///
-    /// With tolerance b, changes smaller than b·2^(j-1) won't trigger parent changes.
+    /// With tolerance b, changes smaller than `$b \cdot 2^{j-1}$` won't trigger parent changes.
     #[must_use]
     pub fn would_require_parent_change(&self, index: usize, new_log_weight: f64) -> bool {
         if index >= self.element_ranges.len() {
@@ -434,7 +434,7 @@ impl MutableTree {
     /// Uses incremental O(log* N) propagation instead of full rebuild.
     ///
     /// # Arguments
-    /// * `log_weight` - The log₂ of the new element's weight
+    /// * `log_weight` - The `$\log_2$` of the new element's weight
     ///
     /// # Returns
     /// The index of the newly inserted element.
@@ -968,11 +968,11 @@ mod tests {
     #[test]
     fn test_tolerance_based_lazy_update_crosses_boundary() {
         // With b=0.4, range 2 tolerates [1.2, 4.8) in linear space
-        // log2(4.8) ≈ 2.26, so weight 5 (log≈2.32) should require parent change
+        // log2(4.8) ~= 2.26, so weight 5 (log ~= 2.32) should require parent change
         let config = OptimizationConfig::optimized();
         let tree = MutableTree::with_config(vec![1.0], config); // weight 2 (range 2)
 
-        // Weight 5 (log≈2.32) is outside tolerated interval
+        // Weight 5 (log ~= 2.32) is outside tolerated interval
         assert!(tree.would_require_parent_change(0, 5.0_f64.log2()));
 
         // Weight 1.0 (log=0) is also outside tolerated interval (below 1.2)

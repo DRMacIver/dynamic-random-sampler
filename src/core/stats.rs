@@ -272,10 +272,10 @@ mod tests {
         // Gamma(2) = 1, ln(1) = 0
         assert!((ln_gamma(2.0) - 0.0).abs() < 1e-10);
 
-        // Gamma(3) = 2, ln(2) ≈ 0.693
+        // Gamma(3) = 2, ln(2) ~= 0.693
         assert!((ln_gamma(3.0) - 2.0_f64.ln()).abs() < 1e-10);
 
-        // Gamma(4) = 6, ln(6) ≈ 1.791
+        // Gamma(4) = 6, ln(6) ~= 1.791
         assert!((ln_gamma(4.0) - 6.0_f64.ln()).abs() < 1e-10);
 
         // Gamma(0.5) = sqrt(pi)

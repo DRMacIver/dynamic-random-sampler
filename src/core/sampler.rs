@@ -4,8 +4,8 @@
 //! from Section 2.2 of the paper.
 //!
 //! The sampling algorithm works in three steps:
-//! 1. Select a level table `T_ℓ` with probability proportional to `weight(T_ℓ)`
-//! 2. From `T_ℓ`, select a root range `R_j` using the first-fit method
+//! 1. Select a level table `$T_\ell$` with probability proportional to `$\text{weight}(T_\ell)$`
+//! 2. From `$T_\ell$`, select a root range `$R_j$` using the first-fit method
 //! 3. Walk down the tree from `R_j` using rejection sampling until reaching an element
 //!
 //! # Debug Features
@@ -40,7 +40,7 @@ const MAX_REJECTION_ITERATIONS: usize = 1_000_000;
 /// 2. Return the index with the maximum perturbed value
 ///
 /// # Arguments
-/// * `log_weights` - Iterator over log-weights (log₂ of actual weights). Can be any iterator.
+/// * `log_weights` - Iterator over log-weights (`$\log_2$` of actual weights). Can be any iterator.
 /// * `rng` - Random number generator
 ///
 /// # Returns
@@ -63,8 +63,8 @@ fn gumbel_max_sample<R: Rng>(log_weights: impl Iterator<Item = f64>, rng: &mut R
         let gumbel = -(-u.ln()).ln();
 
         // Compute perturbed log-weight
-        // Our log-weights are in log₂, but Gumbel-max assumes natural log.
-        // Since we only care about argmax, we scale Gumbel by LOG2_E: log₂(w) + Gumbel / ln(2)
+        // Our log-weights are in log_2, but Gumbel-max assumes natural log.
+        // Since we only care about argmax, we scale Gumbel by LOG2_E: log_2(w) + Gumbel / ln(2)
         let perturbed = gumbel.mul_add(std::f64::consts::LOG2_E, log_weight);
 
         if perturbed > best_value {
@@ -81,8 +81,8 @@ fn gumbel_max_sample<R: Rng>(log_weights: impl Iterator<Item = f64>, rng: &mut R
 /// Returns the index of the sampled element.
 ///
 /// # Algorithm (Section 2.2)
-/// 1. Select level ℓ with probability `weight(T_ℓ) / Σweight(T_i)`
-/// 2. Select root range `R_j` from `T_ℓ` using first-fit method
+/// 1. Select level `$\ell$` with probability `$\text{weight}(T_\ell) / \sum \text{weight}(T_i)$`
+/// 2. Select root range `$R_j$` from `$T_\ell$` using first-fit method
 /// 3. Walk down from `R_j` using rejection sampling
 ///
 /// Expected time: `O(log* N)`
@@ -295,9 +295,9 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
             .sum::<f64>()
             / degree as f64;
         if avg_log_accept < -10.0 {
-            // avg accept_prob < 2^-10 ≈ 0.001
+            // avg accept_prob < 2^-10 ~= 0.001
             eprintln!(
-                "[DEBUG] Very low avg log_accept_prob {:.2} (accept_prob ≈ {:.2e}) for range {} with {} children",
+                "[DEBUG] Very low avg log_accept_prob {:.2} (accept_prob ~= {:.2e}) for range {} with {} children",
                 avg_log_accept,
                 avg_log_accept.exp2(),
                 j,
@@ -331,7 +331,7 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
 
         // Convert to linear space, clamping to [0, 1]
         // If log_accept_prob >= 0, then accept_prob >= 1, so always accept
-        // If log_accept_prob < -1074 (smallest f64 exponent), accept_prob ≈ 0
+        // If log_accept_prob < -1074 (smallest f64 exponent), accept_prob ~= 0
         let accept_prob = if log_accept_prob >= 0.0 {
             1.0
         } else if log_accept_prob < -1074.0 {
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_sample_distribution_two_elements() {
-        // Weight 1 vs weight 2 → should sample element 1 twice as often
+        // Weight 1 vs weight 2 -> should sample element 1 twice as often
         let tree = Tree::new(vec![0.0, 1.0]); // weights 1, 2
         let mut rng = make_rng();
 
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_sample_distribution_highly_skewed() {
-        // weight 1 vs weight 1024 → element 1 should dominate
+        // weight 1 vs weight 1024 -> element 1 should dominate
         let tree = Tree::new(vec![0.0, 10.0]); // weights 1, 1024
         let mut rng = make_rng();
 
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn test_select_level_single_level() {
-        let tree = Tree::new(vec![0.0, 2.0]); // different ranges → single level
+        let tree = Tree::new(vec![0.0, 2.0]); // different ranges -> single level
         let mut rng = make_rng();
 
         let level = select_level(&tree, &mut rng);

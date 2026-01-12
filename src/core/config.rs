@@ -5,13 +5,13 @@
 //! O(log* N) amortized update time.
 //!
 //! Key parameters:
-//! - **Tolerance factor b (0 ≤ b < 1)**: Allows "lazy updating" by expanding
+//! - **Tolerance factor b (`$0 \leq b < 1$`)**: Allows "lazy updating" by expanding
 //!   the weight interval for range j from [2^(j-1), 2^j) to [(1-b)2^(j-1), (2+b)2^(j-1)).
 //!   This prevents cascading updates when weights change slightly.
 //!
-//! - **Degree bound d (d ≥ 2)**: The minimum number of children required for a
-//!   range to be considered non-root. The paper recommends d ≥ 16 for optimal
-//!   amortized bounds, with d = 1/2 * ((2+b)/(1-b))^(2^(2c)) for integer c ≥ 0.
+//! - **Degree bound d (`$d \geq 2$`)**: The minimum number of children required for a
+//!   range to be considered non-root. The paper recommends `$d \geq 16$` for optimal
+//!   amortized bounds, with `$d = 1/2 * ((2+b)/(1-b))^{2^{2c}}$` for integer `$c \geq 0$`.
 //!
 //! With b = 0.4 and d = 32, we get O(log* N) amortized update time.
 
@@ -20,11 +20,11 @@
 /// Default configuration uses the paper's recommended values of b = 0.4 and d = 32.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct OptimizationConfig {
-    /// Tolerance factor b, where 0 ≤ b < 1.
+    /// Tolerance factor b, where `$0 \leq b < 1$`.
     ///
     /// Controls the expanded range interval:
     /// - Standard interval for range j: [2^(j-1), 2^j)
-    /// - With tolerance: [(1-b)·2^(j-1), (2+b)·2^(j-1))
+    /// - With tolerance: `$[(1-b) \cdot 2^{j-1}, (2+b) \cdot 2^{j-1})$`
     ///
     /// Higher values reduce update propagation but increase rejection rate during sampling.
     /// Recommended: 0.4 (from paper).
@@ -53,7 +53,7 @@ impl OptimizationConfig {
     ///
     /// # Arguments
     /// * `tolerance` - Tolerance factor b (must be in [0, 1))
-    /// * `min_degree` - Minimum degree bound d (must be ≥ 2)
+    /// * `min_degree` - Minimum degree bound d (must be >= 2)
     ///
     /// # Panics
     /// Panics if tolerance is not in [0, 1) or `min_degree` is less than 2.
@@ -130,8 +130,8 @@ impl OptimizationConfig {
 
     /// Compute the lower bound of the tolerated interval for range j.
     ///
-    /// With tolerance b, range j accepts weights from [(1-b)·2^(j-1), (2+b)·2^(j-1)).
-    /// In log space: log₂((1-b)·2^(j-1)) = log₂(1-b) + j - 1
+    /// With tolerance b, range j accepts weights from `$[(1-b) \cdot 2^{j-1}, (2+b) \cdot 2^{j-1})$`.
+    /// In log space: `$\log_2((1-b) \cdot 2^{j-1}) = \log_2(1-b) + j - 1$`
     #[inline]
     #[must_use]
     pub fn tolerated_lower_log(&self, range_number: i32) -> f64 {
@@ -145,8 +145,8 @@ impl OptimizationConfig {
 
     /// Compute the upper bound of the tolerated interval for range j.
     ///
-    /// With tolerance b, range j accepts weights up to (2+b)·2^(j-1).
-    /// In log space: log₂((2+b)·2^(j-1)) = log₂(2+b) + j - 1
+    /// With tolerance b, range j accepts weights up to `$(2+b) \cdot 2^{j-1}$`.
+    /// In log space: `$\log_2((2+b) \cdot 2^{j-1}) = \log_2(2+b) + j - 1$`
     #[inline]
     #[must_use]
     pub fn tolerated_upper_log(&self, range_number: i32) -> f64 {
@@ -158,9 +158,9 @@ impl OptimizationConfig {
         }
     }
 
-    /// Check if a weight (given as log₂(w)) is within the tolerated interval for range j.
+    /// Check if a weight (given as `$\log_2(w)$`) is within the tolerated interval for range j.
     ///
-    /// With tolerance b, the tolerated interval is [(1-b)·2^(j-1), (2+b)·2^(j-1)).
+    /// With tolerance b, the tolerated interval is `$[(1-b) \cdot 2^{j-1}, (2+b) \cdot 2^{j-1})$`.
     /// The element only needs to change range if it falls outside this interval.
     #[inline]
     #[must_use]
@@ -173,8 +173,8 @@ impl OptimizationConfig {
     /// Compute the tolerance amount (in log space) for a range.
     ///
     /// This is the minimum weight change needed to potentially move an element
-    /// out of its current range: b·2^(j-1).
-    /// In log space: log₂(b·2^(j-1)) = log₂(b) + j - 1
+    /// out of its current range: `$b \cdot 2^{j-1}$`.
+    /// In log space: `$\log_2(b \cdot 2^{j-1}) = \log_2(b) + j - 1$`
     ///
     /// Returns `NEG_INFINITY` if tolerance is 0.
     #[inline]
@@ -189,7 +189,7 @@ impl OptimizationConfig {
 
     /// Compute the expected acceptance probability for rejection sampling.
     ///
-    /// With tolerance b, the acceptance probability is at least 1/(2+b) ≈ 0.42 for b=0.4.
+    /// With tolerance b, the acceptance probability is at least `$1/(2+b) \approx 0.42$` for b=0.4.
     #[inline]
     #[must_use]
     pub fn min_acceptance_probability(&self) -> f64 {
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn test_tolerated_lower_log_basic() {
         let config = OptimizationConfig::basic();
-        // With b=0, lower bound is 2^(j-1), so log₂ = j-1
+        // With b=0, lower bound is 2^(j-1), so log_2 = j-1
         assert!((config.tolerated_lower_log(1) - 0.0).abs() < 1e-10);
         assert!((config.tolerated_lower_log(2) - 1.0).abs() < 1e-10);
         assert!((config.tolerated_lower_log(3) - 2.0).abs() < 1e-10);
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_tolerated_upper_log_basic() {
         let config = OptimizationConfig::basic();
-        // With b=0, upper bound is 2^j, so log₂ = j
+        // With b=0, upper bound is 2^j, so log_2 = j
         assert!((config.tolerated_upper_log(1) - 1.0).abs() < 1e-10);
         assert!((config.tolerated_upper_log(2) - 2.0).abs() < 1e-10);
         assert!((config.tolerated_upper_log(3) - 3.0).abs() < 1e-10);
@@ -309,8 +309,8 @@ mod tests {
     fn test_tolerated_interval_optimized() {
         let config = OptimizationConfig::optimized();
         // With b=0.4, range j=2:
-        // Lower: (1-0.4)·2^1 = 0.6·2 = 1.2, log₂ ≈ 0.263
-        // Upper: (2+0.4)·2^1 = 2.4·2 = 4.8, log₂ ≈ 2.263
+        // Lower: (1-0.4)*2^1 = 0.6*2 = 1.2, log_2 ~= 0.263
+        // Upper: (2+0.4)*2^1 = 2.4*2 = 4.8, log_2 ~= 2.263
         let lower = config.tolerated_lower_log(2);
         let upper = config.tolerated_upper_log(2);
 
@@ -335,18 +335,18 @@ mod tests {
     fn test_weight_in_tolerated_range_optimized() {
         let config = OptimizationConfig::optimized();
         // Range 2 with b=0.4: [1.2, 4.8) in linear space
-        // log₂(1.2) ≈ 0.263, log₂(4.8) ≈ 2.263
+        // log_2(1.2) ~= 0.263, log_2(4.8) ~= 2.263
 
         // Weight 2 (log=1) should be in tolerated range
         assert!(config.weight_in_tolerated_range(2, 1.0));
 
-        // Weight 1.5 (log≈0.585) should be in tolerated range
+        // Weight 1.5 (log ~= 0.585) should be in tolerated range
         assert!(config.weight_in_tolerated_range(2, 1.5_f64.log2()));
 
         // Weight 1.0 (log=0) should NOT be in tolerated range (< 1.2)
         assert!(!config.weight_in_tolerated_range(2, 0.0));
 
-        // Weight 5 (log≈2.32) should NOT be in tolerated range (> 4.8)
+        // Weight 5 (log ~= 2.32) should NOT be in tolerated range (> 4.8)
         assert!(!config.weight_in_tolerated_range(2, 5.0_f64.log2()));
     }
 
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn test_tolerance_amount_log_basic() {
         let config = OptimizationConfig::basic();
-        // With b=0, tolerance amount is 0, log₂ = -∞
+        // With b=0, tolerance amount is 0, log_2 = -inf
         assert!(config.tolerance_amount_log(2).is_infinite());
         assert!(config.tolerance_amount_log(2) < 0.0);
     }
@@ -365,8 +365,8 @@ mod tests {
     #[test]
     fn test_tolerance_amount_log_optimized() {
         let config = OptimizationConfig::optimized();
-        // With b=0.4, range j=2: tolerance = 0.4·2^1 = 0.8
-        // log₂(0.8) ≈ -0.322
+        // With b=0.4, range j=2: tolerance = 0.4*2^1 = 0.8
+        // log_2(0.8) ~= -0.322
         let tolerance = config.tolerance_amount_log(2);
         let expected = 0.8_f64.log2();
         assert!((tolerance - expected).abs() < 1e-10);
@@ -386,7 +386,7 @@ mod tests {
     #[test]
     fn test_min_acceptance_probability_optimized() {
         let config = OptimizationConfig::optimized();
-        // With b=0.4, acceptance probability is 1/2.4 ≈ 0.417
+        // With b=0.4, acceptance probability is 1/2.4 ~= 0.417
         let expected = 1.0 / 2.4;
         assert!((config.min_acceptance_probability() - expected).abs() < 1e-10);
     }
