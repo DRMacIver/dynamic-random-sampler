@@ -120,19 +120,29 @@ pub fn weight_in_range(range_number: i32, log_weight: f64) -> bool {
 /// The log₂ of the sum of weights, or `NEG_INFINITY` if empty
 pub fn log_sum_exp<I: Iterator<Item = f64>>(log_weights: I) -> f64 {
     let log_weights: Vec<f64> = log_weights.collect();
+    log_sum_exp_slice(&log_weights)
+}
+
+/// Compute `log₂(Σ 2^log_weight)` from a slice without allocation.
+///
+/// More efficient than `log_sum_exp` when you already have a slice.
+#[inline]
+pub fn log_sum_exp_slice(log_weights: &[f64]) -> f64 {
     if log_weights.is_empty() {
         return f64::NEG_INFINITY;
     }
 
+    // Find max in first pass
     let max_log = log_weights
         .iter()
         .copied()
         .fold(f64::NEG_INFINITY, f64::max);
+
     if max_log.is_infinite() {
         return f64::NEG_INFINITY;
     }
 
-    // sum = Σ 2^(log_w - max_log)
+    // Compute sum in second pass
     let sum: f64 = log_weights.iter().map(|&lw| (lw - max_log).exp2()).sum();
 
     max_log + sum.log2()
