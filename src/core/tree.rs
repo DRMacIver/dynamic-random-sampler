@@ -2,46 +2,85 @@
 //!
 //! This module implements the forest of trees as described in Section 2 of the paper.
 //! Elements are organized into ranges based on their weights, and ranges with
-//! multiple children (degree ≥ 2) propagate up to higher levels, forming trees.
+//! multiple children (degree ≥ d) propagate up to higher levels, forming trees.
 //!
 //! Key concepts:
 //! - Level 0 (implicit): Contains the actual elements with their weights
 //! - Level 1+: Contains ranges that group children from the previous level
-//! - A range with degree 1 becomes a "root" and is stored in the level table `T_ℓ`
-//! - A range with degree ≥ 2 has a parent in the next level
+//! - A range with degree < d becomes a "root" and is stored in the level table `T_ℓ`
+//! - A range with degree ≥ d has a parent in the next level
 //!
 //! The tree has height at most L ≤ `log* N + 1`, where log\* is the iterated logarithm.
+//!
+//! # Section 4 Optimizations
+//!
+//! With Section 4 optimizations enabled (d ≥ 16, b > 0):
+//! - The degree bound d determines root vs non-root classification
+//! - Tolerance factor b allows lazy updates without parent changes
+//! - This achieves O(log* N) amortized update time
 
-use crate::core::{log_sum_exp, Level};
+use crate::core::{log_sum_exp, Level, OptimizationConfig};
 
 /// The forest of trees data structure.
 ///
 /// Manages a collection of levels, each containing ranges that group
 /// children from the previous level. The tree is built bottom-up
 /// from the elements.
+///
+/// With Section 4 optimizations, the degree bound `d` and tolerance `b`
+/// can be configured via [`OptimizationConfig`].
 #[derive(Debug)]
 pub struct Tree {
     /// Element log-weights (level 0)
     element_log_weights: Vec<f64>,
     /// Levels 1 through L (level 0 is implicit)
     levels: Vec<Level>,
+    /// Optimization configuration
+    config: OptimizationConfig,
 }
 
 impl Tree {
-    /// Build a tree from element weights.
+    /// Build a tree from element weights using basic configuration (d=2).
     ///
     /// The tree is constructed bottom-up:
     /// 1. Insert elements into ranges at level 1 based on their weights
-    /// 2. For each level, ranges with degree ≥ 2 propagate to the next level
-    /// 3. Continue until no ranges have degree ≥ 2
+    /// 2. For each level, ranges with degree ≥ d propagate to the next level
+    /// 3. Continue until no ranges have degree ≥ d
     ///
     /// # Arguments
     /// * `log_weights` - The log₂ of each element's weight
     #[must_use]
     pub fn new(log_weights: Vec<f64>) -> Self {
+        Self::with_config(log_weights, OptimizationConfig::basic())
+    }
+
+    /// Build a tree from element weights with Section 4 optimizations.
+    ///
+    /// Uses the paper's recommended values of b=0.4 and d=32.
+    ///
+    /// # Arguments
+    /// * `log_weights` - The log₂ of each element's weight
+    #[must_use]
+    pub fn new_optimized(log_weights: Vec<f64>) -> Self {
+        Self::with_config(log_weights, OptimizationConfig::optimized())
+    }
+
+    /// Build a tree from element weights with custom optimization configuration.
+    ///
+    /// The tree is constructed bottom-up:
+    /// 1. Insert elements into ranges at level 1 based on their weights
+    /// 2. For each level, ranges with degree ≥ `min_degree` propagate to the next level
+    /// 3. Continue until no ranges have degree ≥ `min_degree`
+    ///
+    /// # Arguments
+    /// * `log_weights` - The log₂ of each element's weight
+    /// * `config` - The optimization configuration
+    #[must_use]
+    pub fn with_config(log_weights: Vec<f64>, config: OptimizationConfig) -> Self {
         let mut tree = Self {
             element_log_weights: log_weights,
             levels: Vec::new(),
+            config,
         };
         let log_weights = &tree.element_log_weights;
 
@@ -50,18 +89,18 @@ impl Tree {
         }
 
         // Build level 1: insert elements into ranges
-        let mut level1 = Level::new(1);
+        let mut level1 = Level::with_config(1, tree.config);
         for (idx, &log_weight) in log_weights.iter().enumerate() {
             level1.insert_child(idx, log_weight);
         }
         tree.levels.push(level1);
 
-        // Build higher levels: ranges with degree >= 2 propagate up
+        // Build higher levels: ranges with degree >= min_degree propagate up
         loop {
             let current_level_num = tree.levels.len();
             let current_level = &tree.levels[current_level_num - 1];
 
-            // Collect non-root ranges (degree >= 2) that need parents
+            // Collect non-root ranges (degree >= min_degree) that need parents
             let non_roots: Vec<_> = current_level
                 .non_root_ranges()
                 .map(|(j, r)| (j, r.compute_total_log_weight()))
@@ -71,8 +110,8 @@ impl Tree {
                 break;
             }
 
-            // Create next level
-            let mut next_level = Level::new(current_level_num + 1);
+            // Create next level with same config
+            let mut next_level = Level::with_config(current_level_num + 1, tree.config);
             for (range_number, range_log_weight) in non_roots {
                 // The range becomes a child in the next level
                 // Use the range_number as a unique identifier
@@ -84,6 +123,12 @@ impl Tree {
         }
 
         tree
+    }
+
+    /// Get the optimization configuration.
+    #[must_use]
+    pub const fn config(&self) -> &OptimizationConfig {
+        &self.config
     }
 
     /// Get the number of elements.

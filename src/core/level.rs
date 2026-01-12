@@ -5,13 +5,19 @@
 //! At higher levels, ranges contain ranges from the previous level.
 //!
 //! Key components from the paper:
-//! - Level table `T_ℓ`: Contains root ranges (degree 1) at level ℓ
-//! - Internal ranges: Ranges with degree ≥ 2 that have parents in the next level
+//! - Level table `T_ℓ`: Contains root ranges at level ℓ
+//! - Internal ranges: Ranges with degree ≥ d that have parents in the next level
 //! - `weight(T_ℓ)`: Total weight of all root ranges at level ℓ
+//!
+//! # Section 4 Optimizations
+//!
+//! With Section 4 optimizations, the definition of root vs non-root changes:
+//! - **Basic (b=0, d=2)**: Root ranges have degree 1, non-roots have degree ≥ 2
+//! - **Optimized (b=0.4, d=32)**: Root ranges have degree < 32, non-roots have degree ≥ 32
 
 use std::collections::HashMap;
 
-use crate::core::{compute_range_number, log_sum_exp, Range};
+use crate::core::{compute_range_number, log_sum_exp, OptimizationConfig, Range};
 
 /// A unique identifier for a range within a level.
 pub type RangeId = usize;
@@ -20,6 +26,11 @@ pub type RangeId = usize;
 ///
 /// Manages all ranges at a specific level, tracking which are roots
 /// (stored in the level table) and which have parents at the next level.
+///
+/// With Section 4 optimizations, the degree bound `d` determines which ranges
+/// are roots vs non-roots:
+/// - Root ranges: degree < d
+/// - Non-root ranges: degree ≥ d
 #[derive(Debug)]
 pub struct Level {
     /// The level number (1-indexed; level 0 is the implicit element level)
@@ -29,21 +40,40 @@ pub struct Level {
     ranges: HashMap<i32, Range>,
     /// Cache of total weight of all root ranges
     cached_root_total_log_weight: Option<f64>,
+    /// Optimization configuration (tolerance and degree bound)
+    config: OptimizationConfig,
 }
 
 impl Level {
-    /// Create a new empty level.
+    /// Create a new empty level with basic configuration (d=2).
     ///
     /// # Arguments
     /// * `level_number` - The level number (must be ≥ 1)
     #[must_use]
     pub fn new(level_number: usize) -> Self {
+        Self::with_config(level_number, OptimizationConfig::basic())
+    }
+
+    /// Create a new empty level with custom optimization configuration.
+    ///
+    /// # Arguments
+    /// * `level_number` - The level number (must be ≥ 1)
+    /// * `config` - The optimization configuration
+    #[must_use]
+    pub fn with_config(level_number: usize, config: OptimizationConfig) -> Self {
         assert!(level_number >= 1, "Level number must be at least 1");
         Self {
             level_number,
             ranges: HashMap::new(),
             cached_root_total_log_weight: None,
+            config,
         }
+    }
+
+    /// Get the optimization configuration.
+    #[must_use]
+    pub const fn config(&self) -> &OptimizationConfig {
+        &self.config
     }
 
     /// Get the level number.
@@ -121,60 +151,74 @@ impl Level {
         }
     }
 
-    /// Check if a range exists and is a root range (degree == 1).
+    /// Check if a range exists and is a root range (degree < `min_degree`).
+    ///
+    /// With Section 4 optimizations, a range is a root if its degree is less
+    /// than the configured minimum degree bound `d`.
     #[must_use]
     pub fn is_root_range(&self, range_number: i32) -> bool {
-        self.ranges.get(&range_number).is_some_and(Range::is_root)
+        self.ranges
+            .get(&range_number)
+            .is_some_and(|r| self.config.is_root_degree(r.degree()))
     }
 
     /// Get all root ranges at this level.
     ///
-    /// Root ranges have exactly one child and are stored in the level table.
-    pub fn root_ranges(&self) -> impl Iterator<Item = (i32, &Range)> {
+    /// Root ranges have degree < `min_degree` and are stored in the level table.
+    /// With basic config (d=2), this means degree == 1.
+    /// With optimized config (d=32), this means degree < 32.
+    pub fn root_ranges(&self) -> impl Iterator<Item = (i32, &Range)> + '_ {
         self.ranges
             .iter()
-            .filter(|(_, r)| Range::is_root(r))
+            .filter(|(_, r)| !r.is_empty() && self.config.is_root_degree(r.degree()))
             .map(|(&n, r)| (n, r))
     }
 
     /// Get all non-root ranges at this level.
     ///
-    /// Non-root ranges have degree ≥ 2 and will have parents at the next level.
-    pub fn non_root_ranges(&self) -> impl Iterator<Item = (i32, &Range)> {
+    /// Non-root ranges have degree ≥ `min_degree` and will have parents at the next level.
+    /// With basic config (d=2), this means degree >= 2.
+    /// With optimized config (d=32), this means degree >= 32.
+    pub fn non_root_ranges(&self) -> impl Iterator<Item = (i32, &Range)> + '_ {
         self.ranges
             .iter()
-            .filter(|(_, r)| !Range::is_root(r) && !Range::is_empty(r))
+            .filter(|(_, r)| !r.is_empty() && self.config.is_non_root_degree(r.degree()))
             .map(|(&n, r)| (n, r))
     }
 
     /// Get the number of root ranges.
     #[must_use]
     pub fn root_count(&self) -> usize {
-        self.ranges.values().filter(|r| Range::is_root(r)).count()
+        self.ranges
+            .values()
+            .filter(|r| !r.is_empty() && self.config.is_root_degree(r.degree()))
+            .count()
     }
 
-    /// Get the number of non-root ranges (ranges with degree ≥ 2).
+    /// Get the number of non-root ranges (ranges with degree ≥ `min_degree`).
     #[must_use]
     pub fn non_root_count(&self) -> usize {
         self.ranges
             .values()
-            .filter(|r| !Range::is_root(r) && !Range::is_empty(r))
+            .filter(|r| !r.is_empty() && self.config.is_non_root_degree(r.degree()))
             .count()
     }
 
     /// Compute the total log-weight of all root ranges (weight of `T_ℓ`).
     ///
     /// This is used in Step 1 of the sampling algorithm.
+    /// Root ranges are those with degree < `min_degree`.
     #[must_use]
     pub fn root_total_log_weight(&mut self) -> f64 {
         if let Some(cached) = self.cached_root_total_log_weight {
             return cached;
         }
 
+        let min_degree = self.config.min_degree();
         let total = log_sum_exp(
             self.ranges
                 .values_mut()
-                .filter(|r| Range::is_root(r))
+                .filter(|r| !r.is_empty() && r.degree() < min_degree)
                 .map(Range::total_log_weight),
         );
         self.cached_root_total_log_weight = Some(total);
@@ -184,10 +228,11 @@ impl Level {
     /// Compute the total log-weight of all root ranges (immutable version).
     #[must_use]
     pub fn compute_root_total_log_weight(&self) -> f64 {
+        let min_degree = self.config.min_degree();
         log_sum_exp(
             self.ranges
                 .values()
-                .filter(|r| Range::is_root(r))
+                .filter(|r| !r.is_empty() && r.degree() < min_degree)
                 .map(Range::compute_total_log_weight),
         )
     }
@@ -203,9 +248,10 @@ impl Level {
     /// the first (largest) root range number.
     #[must_use]
     pub fn roots_sum(&self) -> f64 {
+        let min_degree = self.config.min_degree();
         self.ranges
             .iter()
-            .filter(|(_, r)| Range::is_root(r))
+            .filter(|(_, r)| !r.is_empty() && r.degree() < min_degree)
             .map(|(&j, _)| 2.0_f64.powi(j))
             .sum()
     }
@@ -215,11 +261,18 @@ impl Level {
     /// Returns None if there are no root ranges.
     #[must_use]
     pub fn largest_root_range_number(&self) -> Option<i32> {
+        let min_degree = self.config.min_degree();
         self.ranges
             .iter()
-            .filter(|(_, r)| Range::is_root(r))
+            .filter(|(_, r)| !r.is_empty() && r.degree() < min_degree)
             .map(|(&j, _)| j)
             .max()
+    }
+
+    /// Get the minimum degree bound for this level.
+    #[must_use]
+    pub const fn min_degree(&self) -> usize {
+        self.config.min_degree()
     }
 }
 

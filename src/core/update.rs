@@ -4,37 +4,72 @@
 //! When an element's weight changes, the update propagates up through the
 //! tree levels as necessary.
 //!
-//! From Section 2.3 of the paper:
+//! # Basic Update Algorithm (Section 2.3)
+//!
 //! 1. Update the element's weight
 //! 2. If the element moves to a different range, update level 1
 //! 3. Propagate changes up the tree as range weights change
 //! 4. Root ranges may become non-root (or vice versa)
+//!
+//! # Section 4 Optimizations
+//!
+//! With Section 4 optimizations, we use tolerance-based "lazy updating":
+//!
+//! 1. Each range `R_j` tolerates weights in [(1-b)·2^(j-1), (2+b)·2^(j-1))
+//!    instead of just [2^(j-1), 2^j)
+//!
+//! 2. An element only changes its parent range when its weight moves
+//!    outside the tolerated interval (requires change of at least b·2^(j-1))
+//!
+//! 3. The degree bound d >= 16 limits how many parent changes can cascade
+//!
+//! This achieves O(log* N) amortized expected update time.
 
-use crate::core::{compute_range_number, Level, Tree};
+use crate::core::{compute_range_number, Level, OptimizationConfig, Tree};
 
 /// A mutable tree that supports weight updates.
 ///
 /// This struct wraps a `Tree` and provides methods to update element weights
 /// while maintaining the tree structure.
+///
+/// With Section 4 optimizations enabled, updates use tolerance-based lazy
+/// propagation to achieve O(log* N) amortized expected update time.
 #[derive(Debug)]
 pub struct MutableTree {
     /// Element log-weights (level 0)
     element_log_weights: Vec<f64>,
+    /// The current range number for each element (cached)
+    element_ranges: Vec<i32>,
     /// Levels 1 through L
     levels: Vec<Level>,
+    /// Optimization configuration (tolerance and degree bound)
+    config: OptimizationConfig,
 }
 
 impl MutableTree {
-    /// Create a new mutable tree from element weights.
+    /// Create a new mutable tree from element weights using basic configuration.
     #[must_use]
     pub fn new(log_weights: Vec<f64>) -> Self {
-        let tree = Tree::new(log_weights);
+        Self::with_config(log_weights, OptimizationConfig::basic())
+    }
+
+    /// Create a new mutable tree with Section 4 optimizations.
+    ///
+    /// Uses b=0.4 and d=32 for O(log* N) amortized update time.
+    #[must_use]
+    pub fn new_optimized(log_weights: Vec<f64>) -> Self {
+        Self::with_config(log_weights, OptimizationConfig::optimized())
+    }
+
+    /// Create a new mutable tree with custom optimization configuration.
+    #[must_use]
+    pub fn with_config(log_weights: Vec<f64>, config: OptimizationConfig) -> Self {
+        let tree = Tree::with_config(log_weights, config);
         Self::from_tree(&tree)
     }
 
     /// Create a mutable tree from an existing immutable tree.
     fn from_tree(tree: &Tree) -> Self {
-        // We need to reconstruct the tree to get ownership of levels
         Self::new_internal(tree)
     }
 
@@ -43,9 +78,19 @@ impl MutableTree {
             .filter_map(|i| tree.element_log_weight(i))
             .collect();
 
+        // Cache the range number for each element
+        let element_ranges: Vec<i32> = element_log_weights
+            .iter()
+            .map(|&lw| compute_range_number(lw))
+            .collect();
+
+        let config = *tree.config();
+
         let mut result = Self {
             element_log_weights: element_log_weights.clone(),
+            element_ranges,
             levels: Vec::new(),
+            config,
         };
 
         if element_log_weights.is_empty() {
@@ -53,7 +98,7 @@ impl MutableTree {
         }
 
         // Rebuild the tree from scratch with ownership
-        let mut level1 = Level::new(1);
+        let mut level1 = Level::with_config(1, config);
         for (idx, &log_weight) in element_log_weights.iter().enumerate() {
             level1.insert_child(idx, log_weight);
         }
@@ -73,7 +118,7 @@ impl MutableTree {
                 break;
             }
 
-            let mut next_level = Level::new(current_level_num + 1);
+            let mut next_level = Level::with_config(current_level_num + 1, config);
             for (range_number, range_log_weight) in non_roots {
                 #[allow(clippy::cast_sign_loss)]
                 let child_idx = range_number as usize;
@@ -83,6 +128,12 @@ impl MutableTree {
         }
 
         result
+    }
+
+    /// Get the optimization configuration.
+    #[must_use]
+    pub const fn config(&self) -> &OptimizationConfig {
+        &self.config
     }
 
     /// Get the number of elements.
@@ -115,10 +166,16 @@ impl MutableTree {
     /// or using the mutable tree directly for sampling.
     #[must_use]
     pub fn as_tree(&self) -> Tree {
-        Tree::new(self.element_log_weights.clone())
+        Tree::with_config(self.element_log_weights.clone(), self.config)
     }
 
     /// Update an element's weight.
+    ///
+    /// With Section 4 optimizations, uses tolerance-based lazy updating:
+    /// - If the new weight is within the tolerated interval of the current range,
+    ///   only the weight is updated (no parent change)
+    /// - If the new weight is outside the tolerated interval, the element
+    ///   moves to a new range and changes propagate up
     ///
     /// # Arguments
     /// * `index` - The element index
@@ -131,33 +188,54 @@ impl MutableTree {
             return false;
         }
 
-        let old_log_weight = self.element_log_weights[index];
-        let old_range = compute_range_number(old_log_weight);
-        let new_range = compute_range_number(new_log_weight);
+        let old_range = self.element_ranges[index];
 
         // Update the element weight
         self.element_log_weights[index] = new_log_weight;
 
-        // If the element stays in the same range, just update the weight in that range
-        if old_range == new_range {
+        // Check if the new weight is within the tolerated interval of the current range
+        // With tolerance b, range j accepts weights in [(1-b)·2^(j-1), (2+b)·2^(j-1))
+        let stays_in_range = self
+            .config
+            .weight_in_tolerated_range(old_range, new_log_weight);
+
+        if stays_in_range {
+            // Lazy update: just update the weight in the current range
             if let Some(level) = self.levels.get_mut(0) {
                 if let Some(range) = level.get_range_mut(old_range) {
                     range.update_child_weight(index, new_log_weight);
                 }
             }
-            // Propagate weight changes up
+            // Propagate weight changes up (but no structural changes)
             self.propagate_weight_changes(1, old_range);
         } else {
-            // Element moves to a different range
+            // Element needs to move to a different range
+            let new_range = compute_range_number(new_log_weight);
+            self.element_ranges[index] = new_range;
+
             if let Some(level) = self.levels.get_mut(0) {
                 level.remove_child(old_range, index);
                 level.insert_child(index, new_log_weight);
             }
-            // Propagate changes for both ranges
+            // Propagate structural changes for both ranges
             self.propagate_structure_changes(1, old_range, new_range);
         }
 
         true
+    }
+
+    /// Check if a weight change would require a parent change for the element.
+    ///
+    /// With tolerance b, changes smaller than b·2^(j-1) won't trigger parent changes.
+    #[must_use]
+    pub fn would_require_parent_change(&self, index: usize, new_log_weight: f64) -> bool {
+        if index >= self.element_ranges.len() {
+            return false;
+        }
+        let current_range = self.element_ranges[index];
+        !self
+            .config
+            .weight_in_tolerated_range(current_range, new_log_weight)
     }
 
     /// Propagate weight changes up the tree when an element's weight changes
@@ -229,7 +307,7 @@ impl MutableTree {
                 break;
             }
 
-            let mut next_level = Level::new(current_level_num + 1);
+            let mut next_level = Level::with_config(current_level_num + 1, self.config);
             for (range_number, range_log_weight) in non_roots {
                 #[allow(clippy::cast_sign_loss)]
                 let child_idx = range_number as usize;
@@ -515,5 +593,144 @@ mod tests {
         // Final state: element 1 is heavier
         assert_eq!(tree.element_log_weight(0), Some(0.0));
         assert_eq!(tree.element_log_weight(1), Some(10.0));
+    }
+
+    // -------------------------------------------------------------------------
+    // Section 4 Optimization Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_optimized_tree_creation() {
+        let tree = MutableTree::new_optimized(vec![1.0, 1.5, 2.0]);
+        assert!((tree.config().tolerance() - 0.4).abs() < 1e-10);
+        assert_eq!(tree.config().min_degree(), 32);
+    }
+
+    #[test]
+    fn test_custom_config_tree_creation() {
+        let config = OptimizationConfig::new(0.3, 16);
+        let tree = MutableTree::with_config(vec![1.0, 2.0], config);
+        assert!((tree.config().tolerance() - 0.3).abs() < 1e-10);
+        assert_eq!(tree.config().min_degree(), 16);
+    }
+
+    #[test]
+    fn test_tolerance_based_lazy_update_same_range() {
+        // With b=0.4, range 2 (normally [2,4)) tolerates weights in [1.2, 4.8)
+        // An element at weight 2 (log=1) should tolerate updates to ~3 (log=~1.58) without parent change
+        let config = OptimizationConfig::optimized();
+        let mut tree = MutableTree::with_config(vec![1.0], config); // weight 2 (range 2)
+
+        // Check that small changes within tolerance don't require parent change
+        assert!(!tree.would_require_parent_change(0, 1.2)); // weight ~2.3, within [1.2, 4.8)
+        assert!(!tree.would_require_parent_change(0, 1.5)); // weight ~2.83, within [1.2, 4.8)
+        assert!(!tree.would_require_parent_change(0, 1.9)); // weight ~3.73, within [1.2, 4.8)
+
+        // Update within tolerance
+        tree.update(0, 1.5);
+        assert_eq!(tree.element_log_weight(0), Some(1.5));
+    }
+
+    #[test]
+    fn test_tolerance_based_lazy_update_crosses_boundary() {
+        // With b=0.4, range 2 tolerates [1.2, 4.8) in linear space
+        // log2(4.8) ≈ 2.26, so weight 5 (log≈2.32) should require parent change
+        let config = OptimizationConfig::optimized();
+        let tree = MutableTree::with_config(vec![1.0], config); // weight 2 (range 2)
+
+        // Weight 5 (log≈2.32) is outside tolerated interval
+        assert!(tree.would_require_parent_change(0, 5.0_f64.log2()));
+
+        // Weight 1.0 (log=0) is also outside tolerated interval (below 1.2)
+        assert!(tree.would_require_parent_change(0, 0.0));
+    }
+
+    #[test]
+    fn test_basic_config_no_tolerance() {
+        // With b=0, standard range [2,4) applies strictly
+        let config = OptimizationConfig::basic();
+        let tree = MutableTree::with_config(vec![1.0], config); // weight 2 (range 2)
+
+        // Without tolerance, any weight outside [2,4) requires parent change
+        assert!(tree.would_require_parent_change(0, 0.9)); // weight < 2
+        assert!(tree.would_require_parent_change(0, 2.0)); // weight 4, at boundary
+        assert!(!tree.would_require_parent_change(0, 1.5)); // weight ~2.83, within [2,4)
+    }
+
+    #[test]
+    fn test_degree_bound_affects_root_classification() {
+        // With d=32 (optimized), ranges need 32+ children to be non-root
+        // With d=2 (basic), ranges need only 2+ children to be non-root
+        let weights_32: Vec<f64> = (0..32).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
+
+        let basic_tree = MutableTree::new(weights_32.clone());
+        let optimized_tree = MutableTree::new_optimized(weights_32);
+
+        // With basic config (d=2), 32 elements in one range should propagate to multiple levels
+        // With optimized config (d=32), they might all fit in one level's root
+        let basic_level1 = basic_tree.get_level(1).unwrap();
+        let optimized_level1 = optimized_tree.get_level(1).unwrap();
+
+        // Basic: range with 32 elements is non-root (has parent)
+        assert_eq!(basic_level1.non_root_count(), 1);
+
+        // Optimized: range with 32 elements is exactly at threshold (d=32), so non-root
+        assert_eq!(optimized_level1.non_root_count(), 1);
+    }
+
+    #[test]
+    fn test_degree_bound_31_elements_becomes_root() {
+        // With d=32, 31 elements should make the range a root
+        let weights_31: Vec<f64> = (0..31).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
+
+        let optimized_tree = MutableTree::new_optimized(weights_31);
+        let level1 = optimized_tree.get_level(1).unwrap();
+
+        // Range with 31 elements is a root (degree < 32)
+        assert_eq!(level1.root_count(), 1);
+        assert_eq!(level1.non_root_count(), 0);
+    }
+
+    #[test]
+    fn test_optimized_tree_sampling_still_works() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let tree = MutableTree::new_optimized(vec![0.0, 10.0]); // weights 1 and 1024
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+        // Most samples should be element 1 (much heavier)
+        let samples: Vec<_> = (0..1000)
+            .filter_map(|_| sample(&immutable, &mut rng))
+            .collect();
+        let count1 = samples.iter().filter(|&&x| x == 1).count();
+        let fraction = f64::from(u32::try_from(count1).unwrap())
+            / f64::from(u32::try_from(samples.len()).unwrap());
+        assert!(fraction > 0.99, "fraction was {fraction}");
+    }
+
+    #[test]
+    fn test_optimized_update_correctness() {
+        use crate::core::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut tree = MutableTree::new_optimized(vec![0.0, 0.0]); // equal weights
+
+        // Make element 0 much heavier
+        tree.update(0, 10.0);
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+        // Most samples should be element 0 now
+        let samples: Vec<_> = (0..1000)
+            .filter_map(|_| sample(&immutable, &mut rng))
+            .collect();
+        let count0 = samples.iter().filter(|&&x| x == 0).count();
+        let fraction = f64::from(u32::try_from(count0).unwrap())
+            / f64::from(u32::try_from(samples.len()).unwrap());
+        assert!(fraction > 0.99, "fraction was {fraction}");
     }
 }

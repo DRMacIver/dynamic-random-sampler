@@ -4,6 +4,19 @@
 //! from "Dynamic Generation of Discrete Random Variates" (Matias, Vitter, Ni, 1993/2003).
 //!
 //! The implementation is separated from `PyO3` bindings to allow standalone testing.
+//!
+//! # Section 4 Optimizations
+//!
+//! This implementation includes the Section 4 optimizations for achieving
+//! O(log* N) amortized update time:
+//!
+//! - **Tolerance factor b**: Allows weights to vary within an expanded interval
+//!   without triggering parent changes, reducing update propagation.
+//!
+//! - **Degree bound d**: Requires at least d children for a range to have a parent,
+//!   which bounds the tree height and update complexity.
+//!
+//! See [`OptimizationConfig`] for configuration options.
 
 // Allow some pedantic lints that are not applicable for this mathematical implementation
 #![allow(clippy::missing_panics_doc)]
@@ -11,6 +24,7 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_sign_loss)]
 
+pub mod config;
 pub mod level;
 pub mod range;
 pub mod sampler;
@@ -18,6 +32,7 @@ pub mod stats;
 pub mod tree;
 pub mod update;
 
+pub use config::OptimizationConfig;
 pub use level::Level;
 pub use range::Range;
 pub use sampler::{sample, sample_n};
