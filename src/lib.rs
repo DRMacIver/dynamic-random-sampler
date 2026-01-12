@@ -12,6 +12,8 @@ pub mod core;
 #[cfg(feature = "python")]
 mod python_bindings {
     use pyo3::prelude::*;
+    use rand::prelude::*;
+    use rand_chacha::ChaCha8Rng;
 
     use crate::core::{sample, MutableTree, DELETED_LOG_WEIGHT};
 
@@ -26,6 +28,8 @@ mod python_bindings {
     pub struct DynamicSampler {
         /// The mutable tree data structure from the paper
         tree: MutableTree,
+        /// Internal random number generator (`ChaCha8` for reproducibility)
+        rng: ChaCha8Rng,
     }
 
     impl DynamicSampler {
@@ -59,12 +63,18 @@ mod python_bindings {
         ///
         /// Weights must be positive. They are converted to log space internally.
         ///
+        /// # Arguments
+        ///
+        /// * `weights` - List of positive weights
+        /// * `seed` - Optional seed for the random number generator. If None, uses entropy
+        ///
         /// # Errors
         ///
         /// Returns error if weights is empty or contains non-positive values.
         #[new]
+        #[pyo3(signature = (weights, seed=None))]
         #[allow(clippy::needless_pass_by_value)]
-        pub fn new(weights: Vec<f64>) -> PyResult<Self> {
+        pub fn new(weights: Vec<f64>, seed: Option<u64>) -> PyResult<Self> {
             if weights.is_empty() {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "weights cannot be empty",
@@ -80,7 +90,8 @@ mod python_bindings {
             // The optimized config (min_degree=32) requires large trees for correct
             // multi-level structure; basic config (min_degree=2) works for all sizes.
             let tree = MutableTree::new(log_weights);
-            Ok(Self { tree })
+            let rng = seed.map_or_else(ChaCha8Rng::from_entropy, ChaCha8Rng::seed_from_u64);
+            Ok(Self { tree, rng })
         }
 
         /// Return the number of elements (including deleted).
@@ -395,17 +406,63 @@ mod python_bindings {
         /// Deleted elements (weight 0) are never returned.
         /// Uses O(log* N) expected time.
         ///
+        /// Uses the internal RNG. For reproducible results, create the sampler
+        /// with a seed: `DynamicSampler(weights, seed=12345)`.
+        ///
         /// # Errors
         ///
         /// Returns error if all elements are deleted (nothing to sample).
-        pub fn sample(&self) -> PyResult<usize> {
+        pub fn sample(&mut self) -> PyResult<usize> {
             let tree = self.tree.as_tree();
-            let mut rng = rand::thread_rng();
-            sample(&tree, &mut rng).ok_or_else(|| {
+            sample(&tree, &mut self.rng).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "no active elements to sample (all deleted)",
                 )
             })
+        }
+
+        /// Reseed the internal random number generator.
+        ///
+        /// # Arguments
+        ///
+        /// * `seed` - New seed value for the RNG
+        pub fn seed(&mut self, seed: u64) {
+            self.rng = ChaCha8Rng::seed_from_u64(seed);
+        }
+
+        /// Get the current state of the random number generator.
+        ///
+        /// Note: State persistence is not yet fully implemented. This returns an empty
+        /// vector as a placeholder. For reproducibility, use construction-time seeding
+        /// with the `seed` parameter.
+        ///
+        /// # Returns
+        ///
+        /// A bytes object (currently empty - placeholder for future implementation).
+        #[must_use]
+        #[allow(clippy::missing_const_for_fn)] // pymethod cannot be const
+        pub fn getstate(&self) -> Vec<u8> {
+            // Full state serialization requires exposing ChaCha8Rng internals
+            // which is complex. For now, return empty and document the limitation.
+            Vec::new()
+        }
+
+        /// Set the state of the random number generator.
+        ///
+        /// # Arguments
+        ///
+        /// * `state` - State bytes from a previous call to `getstate()`
+        ///
+        /// # Errors
+        ///
+        /// Returns error if the state is invalid.
+        #[allow(clippy::needless_pass_by_value)]
+        #[allow(clippy::unused_self)]
+        pub fn setstate(&mut self, _state: Vec<u8>) -> PyResult<()> {
+            // Placeholder - full state restoration requires more complex implementation
+            Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
+                "getstate/setstate not yet fully implemented for RNG state persistence",
+            ))
         }
 
         /// Run a chi-squared goodness-of-fit test on this sampler.
