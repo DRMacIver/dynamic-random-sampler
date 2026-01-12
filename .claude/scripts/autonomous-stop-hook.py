@@ -201,8 +201,14 @@ def main() -> int:
 
     iteration: int = int(config.get("iteration", 0)) + 1
     last_change_iteration: int = int(config.get("last_issue_change_iteration", 0))
-    snapshot_list: list[str] = config.get("issue_snapshot", [])
-    previous_snapshot: set[str] = set(snapshot_list)
+    snapshot_list: list[Any] = config.get("issue_snapshot", [])
+    # Handle both list of strings and list of dicts (with 'id' key)
+    previous_snapshot: set[str] = set()
+    for item in snapshot_list:
+        if isinstance(item, str):
+            previous_snapshot.add(item)
+        elif isinstance(item, dict) and "id" in item:
+            previous_snapshot.add(str(item["id"]))
 
     # Get current issue state
     open_ids, in_progress_ids = get_current_issues()
