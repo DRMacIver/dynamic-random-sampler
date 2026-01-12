@@ -28,6 +28,31 @@ mod python_bindings {
         tree: MutableTree,
     }
 
+    impl DynamicSampler {
+        /// Normalize a Python index (which may be negative) to a valid usize index.
+        #[allow(clippy::cast_sign_loss)] // Intentional: we check the sign before casting
+        fn normalize_index(&self, index: isize) -> PyResult<usize> {
+            let len = self.tree.len();
+            let idx = if index < 0 {
+                let positive = (-index) as usize;
+                if positive > len {
+                    return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
+                        "index out of bounds",
+                    ));
+                }
+                len - positive
+            } else {
+                index as usize
+            };
+            if idx >= len {
+                return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
+                    "index out of bounds",
+                ));
+            }
+            Ok(idx)
+        }
+    }
+
     #[pymethods]
     impl DynamicSampler {
         /// Create a new sampler from a list of weights.
@@ -62,6 +87,62 @@ mod python_bindings {
         #[allow(clippy::missing_const_for_fn)] // pymethod cannot be const
         fn __len__(&self) -> usize {
             self.tree.len()
+        }
+
+        /// Get the weight at the given index (supports negative indices).
+        ///
+        /// Equivalent to `sampler[index]`.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if index is out of bounds.
+        fn __getitem__(&self, index: isize) -> PyResult<f64> {
+            let idx = self.normalize_index(index)?;
+            self.weight(idx)
+        }
+
+        /// Set the weight at the given index (supports negative indices).
+        ///
+        /// Equivalent to `sampler[index] = weight`.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if weight is negative, infinite, NaN, or index is out of bounds.
+        fn __setitem__(&mut self, index: isize, weight: f64) -> PyResult<()> {
+            let idx = self.normalize_index(index)?;
+            self.update(idx, weight)
+        }
+
+        /// Delete the element at the given index (supports negative indices).
+        ///
+        /// Equivalent to `del sampler[index]`. This is a soft delete - the element
+        /// is set to weight 0 but remains in the structure.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if index is out of bounds.
+        fn __delitem__(&mut self, index: isize) -> PyResult<()> {
+            let idx = self.normalize_index(index)?;
+            self.delete(idx)
+        }
+
+        /// Check if a weight value exists (among non-deleted elements).
+        ///
+        /// Equivalent to `weight in sampler`.
+        fn __contains__(&self, weight: f64) -> bool {
+            (0..self.tree.len()).any(|i| {
+                self.tree.element_log_weight(i).is_some_and(|lw| {
+                    lw != DELETED_LOG_WEIGHT && (lw.exp2() - weight).abs() < 1e-10
+                })
+            })
+        }
+
+        /// Return an iterator over all weights (including 0.0 for deleted elements).
+        fn __iter__(&self) -> PyWeightIterator {
+            PyWeightIterator {
+                weights: self.to_list(),
+                index: 0,
+            }
         }
 
         /// Get the weight of element at index (in original space, not log space).
@@ -193,6 +274,119 @@ mod python_bindings {
         #[must_use]
         pub fn active_count(&self) -> usize {
             self.tree.active_count()
+        }
+
+        // =====================================================================
+        // Python list-like operations
+        // =====================================================================
+
+        /// Append a weight to the end of the sampler (alias for insert).
+        ///
+        /// Equivalent to `sampler.append(weight)`.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if weight is non-positive, infinite, or NaN.
+        pub fn append(&mut self, weight: f64) -> PyResult<()> {
+            self.insert(weight)?;
+            Ok(())
+        }
+
+        /// Extend the sampler with multiple weights.
+        ///
+        /// Equivalent to `sampler.extend(weights)`.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if any weight is non-positive, infinite, or NaN.
+        #[allow(clippy::needless_pass_by_value)]
+        pub fn extend(&mut self, weights: Vec<f64>) -> PyResult<()> {
+            for weight in weights {
+                self.insert(weight)?;
+            }
+            Ok(())
+        }
+
+        /// Remove and return the last active weight.
+        ///
+        /// This soft-deletes the last element and returns its weight.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if the sampler is empty or all elements are deleted.
+        pub fn pop(&mut self) -> PyResult<f64> {
+            // Find the last non-deleted element
+            for i in (0..self.tree.len()).rev() {
+                if !self.tree.is_deleted(i) {
+                    let weight = self.weight(i)?;
+                    self.tree.delete(i);
+                    return Ok(weight);
+                }
+            }
+            Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
+                "pop from empty sampler",
+            ))
+        }
+
+        /// Soft-delete all elements (set all weights to zero).
+        ///
+        /// The elements remain in the structure but will never be sampled.
+        pub fn clear(&mut self) {
+            for i in 0..self.tree.len() {
+                if !self.tree.is_deleted(i) {
+                    self.tree.delete(i);
+                }
+            }
+        }
+
+        /// Find the first index of an element with the given weight.
+        ///
+        /// Searches among non-deleted elements only.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if no element with this weight exists.
+        pub fn index(&self, weight: f64) -> PyResult<usize> {
+            for i in 0..self.tree.len() {
+                if let Some(lw) = self.tree.element_log_weight(i) {
+                    if lw != DELETED_LOG_WEIGHT && (lw.exp2() - weight).abs() < 1e-10 {
+                        return Ok(i);
+                    }
+                }
+            }
+            Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "{weight} is not in sampler"
+            )))
+        }
+
+        /// Count the number of elements with the given weight.
+        ///
+        /// Counts among non-deleted elements only.
+        #[must_use]
+        pub fn count(&self, weight: f64) -> usize {
+            (0..self.tree.len())
+                .filter(|&i| {
+                    self.tree.element_log_weight(i).is_some_and(|lw| {
+                        lw != DELETED_LOG_WEIGHT && (lw.exp2() - weight).abs() < 1e-10
+                    })
+                })
+                .count()
+        }
+
+        /// Return a list of all weights (including 0.0 for deleted elements).
+        #[must_use]
+        pub fn to_list(&self) -> Vec<f64> {
+            (0..self.tree.len())
+                .map(|i| {
+                    self.tree.element_log_weight(i).map_or(0.0, |lw| {
+                        if lw == DELETED_LOG_WEIGHT {
+                            0.0
+                        } else {
+                            lw.exp2()
+                        }
+                    })
+                })
+                .collect()
         }
 
         /// Sample a random index according to the weight distribution.
@@ -430,12 +624,37 @@ mod python_bindings {
         }
     }
 
+    /// Iterator over weights in a `DynamicSampler`.
+    #[pyclass]
+    pub struct PyWeightIterator {
+        weights: Vec<f64>,
+        index: usize,
+    }
+
+    #[pymethods]
+    impl PyWeightIterator {
+        #[allow(clippy::missing_const_for_fn)] // pymethod cannot be const
+        fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+            slf
+        }
+
+        fn __next__(&mut self) -> Option<f64> {
+            if self.index >= self.weights.len() {
+                return None;
+            }
+            let weight = self.weights[self.index];
+            self.index += 1;
+            Some(weight)
+        }
+    }
+
     /// Python module definition
     #[pymodule]
     #[allow(clippy::missing_errors_doc)]
     pub fn dynamic_random_sampler(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> PyResult<()> {
         m.add_class::<DynamicSampler>()?;
         m.add_class::<PyChiSquaredResult>()?;
+        m.add_class::<PyWeightIterator>()?;
         Ok(())
     }
 }
