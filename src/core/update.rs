@@ -1271,4 +1271,142 @@ mod tests {
         assert!(tree.is_deleted(0));
         assert_eq!(tree.active_count(), 1);
     }
+
+    // -------------------------------------------------------------------------
+    // Statistical Correctness Tests After Updates
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_distribution_correct_after_many_updates() {
+        use crate::core::{chi_squared_from_counts, sample};
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // Create tree with uniform weights
+        let log_weights = vec![0.0; 10]; // all weight 1
+        let mut tree = MutableTree::new(log_weights);
+        let mut rng = ChaCha8Rng::seed_from_u64(123456);
+
+        // Perform many random updates
+        for i in 0..100 {
+            let idx = i % tree.len();
+            let new_weight = (i as f64 * 0.1).sin().abs() + 0.1; // weights in [0.1, 1.1]
+            tree.update(idx, new_weight.log2());
+        }
+
+        // Set final known weights for testing
+        let final_weights: [f64; 10] = [1.0, 2.0, 3.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+        for (i, &w) in final_weights.iter().enumerate() {
+            tree.update(i, w.log2());
+        }
+
+        // Sample many times
+        let immutable = tree.as_tree();
+        let mut counts = vec![0usize; 10];
+        let num_samples = 10_000;
+        for _ in 0..num_samples {
+            if let Some(idx) = sample(&immutable, &mut rng) {
+                counts[idx] += 1;
+            }
+        }
+
+        // Verify distribution with chi-squared test
+        let weights: Vec<f64> = final_weights.to_vec();
+        let result = chi_squared_from_counts(&counts, &weights, num_samples);
+        assert!(
+            result.passes(0.001),
+            "Distribution incorrect after updates: chi2={:.2}, p={:.6}",
+            result.chi_squared,
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn test_distribution_correct_after_inserts() {
+        use crate::core::{chi_squared_from_counts, sample};
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // Start with small tree
+        let log_weights = vec![0.0, 1.0, 2.0]; // weights 1, 2, 4
+        let mut tree = MutableTree::new(log_weights);
+
+        // Insert more elements
+        tree.insert(1.5_f64.log2()); // weight 1.5
+        tree.insert(3.0_f64.log2()); // weight 3
+        tree.insert(2.5_f64.log2()); // weight 2.5
+
+        // Expected weights: [1, 2, 4, 1.5, 3, 2.5]
+        let expected_weights = vec![1.0, 2.0, 4.0, 1.5, 3.0, 2.5];
+
+        // Sample
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(654321);
+        let mut counts = vec![0usize; 6];
+        let num_samples = 10_000;
+        for _ in 0..num_samples {
+            if let Some(idx) = sample(&immutable, &mut rng) {
+                counts[idx] += 1;
+            }
+        }
+
+        // Verify distribution
+        let result = chi_squared_from_counts(&counts, &expected_weights, num_samples);
+        assert!(
+            result.passes(0.001),
+            "Distribution incorrect after inserts: chi2={:.2}, p={:.6}",
+            result.chi_squared,
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn test_distribution_correct_after_deletes() {
+        use crate::core::{chi_squared_from_counts, sample};
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // Start with uniform weights
+        let log_weights = vec![0.0; 10]; // all weight 1
+        let mut tree = MutableTree::new(log_weights);
+
+        // Delete some elements
+        tree.delete(2);
+        tree.delete(5);
+        tree.delete(7);
+
+        // Expected: 7 active elements with equal weight
+        let active_count = tree.active_count();
+        assert_eq!(active_count, 7);
+
+        // Sample
+        let immutable = tree.as_tree();
+        let mut rng = ChaCha8Rng::seed_from_u64(111222);
+        let mut counts = vec![0usize; 10];
+        let num_samples = 10_000;
+        for _ in 0..num_samples {
+            if let Some(idx) = sample(&immutable, &mut rng) {
+                counts[idx] += 1;
+            }
+        }
+
+        // Verify deleted elements got 0 samples
+        assert_eq!(counts[2], 0, "Deleted element 2 was sampled");
+        assert_eq!(counts[5], 0, "Deleted element 5 was sampled");
+        assert_eq!(counts[7], 0, "Deleted element 7 was sampled");
+
+        // Verify distribution among active elements is uniform
+        // Filter to only active elements for chi-squared test
+        let active_indices: Vec<usize> = (0..10).filter(|&i| !tree.is_deleted(i)).collect();
+        let active_counts: Vec<usize> = active_indices.iter().map(|&i| counts[i]).collect();
+        let active_weights = vec![1.0; 7];
+
+        let result = chi_squared_from_counts(&active_counts, &active_weights, num_samples);
+        assert!(
+            result.passes(0.001),
+            "Distribution incorrect after deletes: chi2={:.2}, p={:.6}",
+            result.chi_squared,
+            result.p_value
+        );
+    }
 }
