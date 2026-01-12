@@ -20,11 +20,66 @@ use rand::Rng;
 #[cfg(feature = "debug-timeout")]
 use crate::core::debug::dump_range_state;
 use crate::core::debug::{IterationCounter, TimeoutGuard};
-use crate::core::{log_sum_exp, Range, Tree};
+use crate::core::{Range, Tree};
 
 /// Maximum iterations for rejection sampling before considering it stuck.
 /// This is a safety limit - normal operation should never approach this.
 const MAX_REJECTION_ITERATIONS: usize = 1_000_000;
+
+/// Sample from a categorical distribution using the Gumbel-max trick.
+///
+/// Given log-weights `log_w_i`, samples index `i` with probability `w_i / sum(w)`.
+/// This is done by computing `argmax_i (log_w_i + G_i)` where `G_i ~ Gumbel(0,1)`.
+///
+/// # Key advantage
+/// Works entirely in log space, avoiding overflow for extreme weight ranges.
+/// Weights can span from `1e-300` to `1e300` without numerical issues.
+///
+/// # Algorithm
+/// 1. For each index, add independent `Gumbel(0,1)` noise to its log-weight
+/// 2. Return the index with the maximum perturbed value
+///
+/// # Arguments
+/// * `log_weights` - Iterator over log-weights (log₂ of actual weights). Can be any iterator.
+/// * `rng` - Random number generator
+///
+/// # Returns
+/// Index of the selected element, or `None` if no valid weights exist.
+fn gumbel_max_sample<R: Rng>(log_weights: impl Iterator<Item = f64>, rng: &mut R) -> Option<usize> {
+    let mut best_idx = None;
+    let mut best_value = f64::NEG_INFINITY;
+
+    for (idx, log_weight) in log_weights.enumerate() {
+        // Skip elements with weight 0 (log = -infinity)
+        if log_weight.is_infinite() && log_weight < 0.0 {
+            continue;
+        }
+
+        // Generate Gumbel(0, 1) noise: -log(-log(U)) where U ~ Uniform(0, 1)
+        // Use loop to avoid issues with U = 0 or U = 1
+        let gumbel = loop {
+            let u: f64 = rng.gen();
+            if u > 0.0 && u < 1.0 {
+                break -(-u.ln()).ln();
+            }
+        };
+
+        // Compute perturbed log-weight
+        // Our log-weights are in log₂, but Gumbel-max assumes natural log.
+        // ln(w) = log₂(w) * ln(2), so we need to scale the log-weights:
+        // perturbed = log₂(w) * ln(2) + Gumbel
+        // Since we only care about argmax, we can equivalently not scale
+        // and instead scale the Gumbel noise: log₂(w) + Gumbel / ln(2)
+        let perturbed = log_weight + gumbel * std::f64::consts::LOG2_E;
+
+        if perturbed > best_value {
+            best_value = perturbed;
+            best_idx = Some(idx);
+        }
+    }
+
+    best_idx
+}
 
 /// Sample a random element from the tree according to the weight distribution.
 ///
@@ -87,36 +142,26 @@ pub fn sample<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
 }
 
 /// Select a level with probability proportional to its root total weight.
+///
+/// Uses the Gumbel-max trick to sample in log space, avoiding overflow
+/// for extreme weight ranges.
 fn select_level<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
     let max_level = tree.max_level();
     if max_level == 0 {
         return None;
     }
 
-    // Compute total weight across all level tables
-    let level_weights: Vec<f64> = (1..=max_level).map(|l| tree.level_root_total(l)).collect();
+    // Get log-weights for each level
+    let level_weights = (1..=max_level).map(|l| tree.level_root_total(l));
 
-    let total_log_weight = log_sum_exp(level_weights.iter().copied());
-    if total_log_weight.is_infinite() && total_log_weight < 0.0 {
-        return None;
-    }
-
-    // Sample a level using weighted sampling
-    let u: f64 = rng.gen();
-    let target = u * total_log_weight.exp2();
-
-    let mut cumulative = 0.0;
-    for (i, &log_weight) in level_weights.iter().enumerate() {
-        cumulative += log_weight.exp2();
-        if cumulative >= target {
-            return Some(i + 1);
-        }
-    }
-
-    Some(max_level)
+    // Use Gumbel-max to sample a level (returns 0-indexed, convert to 1-indexed)
+    gumbel_max_sample(level_weights, rng).map(|idx| idx + 1)
 }
 
 /// Select a root range from a level proportional to its total weight.
+///
+/// Uses the Gumbel-max trick to sample in log space, avoiding overflow
+/// for extreme weight ranges.
 ///
 /// Note: The paper describes a first-fit method that relies on rejection sampling
 /// within ranges to correct the distribution. However, this only works when ranges
@@ -129,41 +174,14 @@ fn select_root_range<'a, R: Rng>(level: &'a crate::core::Level, rng: &mut R) -> 
         return None;
     }
 
-    // Compute total weight of all roots (in log space, converted to linear for sampling)
-    let log_weights: Vec<f64> = root_ranges
+    // Get log-weights for each root range
+    let log_weights = root_ranges
         .iter()
-        .map(|(_, r)| r.compute_total_log_weight())
-        .collect();
-    let max_log = log_weights
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
-    if max_log.is_infinite() && max_log < 0.0 {
-        return None; // All roots are empty/deleted
-    }
+        .map(|(_, r)| r.compute_total_log_weight());
 
-    // Compute linear weights relative to max for numerical stability
-    let weights: Vec<f64> = log_weights
-        .iter()
-        .map(|&lw| (lw - max_log).exp2())
-        .collect();
-    let total_weight: f64 = weights.iter().sum();
-    if total_weight == 0.0 {
-        return None;
-    }
-
-    // Generate u ∈ [0, total_weight) and select range
-    let u: f64 = rng.gen::<f64>() * total_weight;
-    let mut cumulative = 0.0;
-    for (i, &w) in weights.iter().enumerate() {
-        cumulative += w;
-        if u < cumulative {
-            return Some(root_ranges[i].1);
-        }
-    }
-
-    // Fallback to last range
-    Some(root_ranges.last()?.1)
+    // Use Gumbel-max to sample a root range
+    let idx = gumbel_max_sample(log_weights, rng)?;
+    Some(root_ranges[idx].1)
 }
 
 /// Walk down from a range at a given level to select an element.

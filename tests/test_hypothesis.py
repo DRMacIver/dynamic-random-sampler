@@ -142,7 +142,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 
     @rule(
         n_to_add=st.integers(1, 100),  # Limited to 100 to avoid O(N^2) insert cost
-        weight=st.floats(min_value=0.1, max_value=1e6)  # Reasonable range
+        weight=st.floats(min_value=0.1, max_value=1000.0)  # Match update_weight range
     )
     @precondition(lambda self: self.sampler is not None)
     def add_many_weights(self, n_to_add: int, weight: float) -> None:
@@ -455,3 +455,68 @@ def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
         f"Chi-squared test failed: chi2={result.chi_squared:.2f}, "
         f"p_value={result.p_value:.6f}, weights={weights}"
     )
+
+
+# -----------------------------------------------------------------------------
+# Extreme Weight Range Tests
+# -----------------------------------------------------------------------------
+
+
+def test_extreme_weight_range() -> None:
+    """Test that sampling works correctly with extremely different weight magnitudes.
+
+    Uses the Gumbel-max trick internally which works entirely in log space,
+    allowing handling of weight ratios up to 10^300.
+    """
+    from dynamic_random_sampler import DynamicSampler
+
+    # Weights spanning 200 orders of magnitude
+    # Element 0: 1e-100 (extremely tiny)
+    # Element 1: 1.0 (normal)
+    # Element 2: 1e100 (extremely large)
+    weights = [1e-100, 1.0, 1e100]
+    sampler: Any = DynamicSampler(weights)
+
+    # Take samples - element 2 should get almost all of them
+    counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
+    num_samples = 1000
+    for _ in range(num_samples):
+        idx = sampler.sample()
+        counts[idx] += 1
+
+    # Element 2 has weight 1e100 / (1e100 + 1 + 1e-100) ≈ 1.0
+    # It should get virtually all samples
+    assert counts[2] > 990, f"Element 2 should get >99% of samples, got {counts[2]/10}%"
+
+    # Elements 0 and 1 should get effectively 0 samples
+    # (probability is about 1e-100 for element 0 and 1e-100 for element 1)
+    assert counts[0] == 0, f"Element 0 (1e-100) shouldn't be sampled, got {counts[0]}"
+    assert counts[1] < 10, f"Element 1 (1.0) rarely sampled, got {counts[1]}"
+
+
+@given(st.data())
+@settings(max_examples=10, deadline=None)
+def test_extreme_dominant_weight(data: st.DataObject) -> None:
+    """Test that a dominant element with extreme weight gets all samples.
+
+    Even with weight ratios of 10^100+, the dominant element should get
+    effectively all samples.
+    """
+    from dynamic_random_sampler import DynamicSampler
+
+    # Create weights where one dominates by 100+ orders of magnitude
+    n = data.draw(st.integers(min_value=2, max_value=5))
+    dominant_idx = data.draw(st.integers(min_value=0, max_value=n - 1))
+
+    # All elements get weight 1.0 except the dominant one
+    weights = [1.0] * n
+    weights[dominant_idx] = 1e100  # Dominant by 100 orders of magnitude
+
+    sampler: Any = DynamicSampler(weights)
+
+    # All samples should go to the dominant element
+    for _ in range(100):
+        idx = sampler.sample()
+        assert idx == dominant_idx, (
+            f"Expected all samples to go to index {dominant_idx}, got {idx}"
+        )
