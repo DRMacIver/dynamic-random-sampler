@@ -6,7 +6,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
 # Install base dependencies (including build essentials for Rust and Python dev)
-# Also install profiling tools (linux-perf-*) for performance analysis
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -17,8 +16,12 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     python3-dev \
-    linux-perf \
-    linux-tools-generic \
+    && rm -rf /var/lib/apt/lists/*
+
+# Try to install profiling tools (optional - may not be available on all architectures)
+# These are kernel-specific and may not work in containers anyway
+RUN apt-get update && apt-get install -y linux-perf linux-tools-generic 2>/dev/null \
+    || echo "Note: linux-perf not available on this architecture, skipping" \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js LTS and Claude Code
