@@ -7,10 +7,24 @@
 //! 1. Select a level table `T_ℓ` with probability proportional to `weight(T_ℓ)`
 //! 2. From `T_ℓ`, select a root range `R_j` using the first-fit method
 //! 3. Walk down the tree from `R_j` using rejection sampling until reaching an element
+//!
+//! # Debug Features
+//!
+//! When compiled with `--features debug-timeout`:
+//! - Operations that exceed 1 second will panic
+//! - Iteration counters track rejection sampling loops
+//! - Detailed state dumps are available for debugging
 
 use rand::Rng;
 
+#[cfg(feature = "debug-timeout")]
+use crate::core::debug::dump_range_state;
+use crate::core::debug::{IterationCounter, TimeoutGuard};
 use crate::core::{log_sum_exp, Range, Tree};
+
+/// Maximum iterations for rejection sampling before considering it stuck.
+/// This is a safety limit - normal operation should never approach this.
+const MAX_REJECTION_ITERATIONS: usize = 1_000_000;
 
 /// Sample a random element from the tree according to the weight distribution.
 ///
@@ -22,17 +36,51 @@ use crate::core::{log_sum_exp, Range, Tree};
 /// 3. Walk down from `R_j` using rejection sampling
 ///
 /// Expected time: `O(log* N)`
+///
+/// # Panics
+///
+/// With `debug-timeout` feature: panics if the operation exceeds 1 second.
+/// Always panics if rejection sampling exceeds `MAX_REJECTION_ITERATIONS`.
 pub fn sample<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
+    let _guard = TimeoutGuard::new("sample");
+
     if tree.is_empty() {
         return None;
+    }
+
+    // Debug: dump tree state if we're in debug mode
+    #[cfg(feature = "debug-timeout")]
+    {
+        if tree.len() > 1000 {
+            eprintln!(
+                "[DEBUG] sample() called on tree with {} elements",
+                tree.len()
+            );
+        }
     }
 
     // Step 1: Select a level table with probability proportional to its weight
     let level_num = select_level(tree, rng)?;
 
+    // Debug assertion: level should be valid
+    debug_assert!(
+        level_num >= 1 && level_num <= tree.max_level(),
+        "Invalid level {} selected (max={})",
+        level_num,
+        tree.max_level()
+    );
+
     // Step 2: Select a root range from the level using first-fit
     let level = tree.get_level(level_num)?;
     let range = select_root_range(level, rng)?;
+
+    // Debug assertion: range should have children
+    debug_assert!(
+        !range.is_empty(),
+        "Selected empty range {} at level {}",
+        range.range_number(),
+        level_num
+    );
 
     // Step 3: Walk down the tree to select an element
     walk_down(tree, level_num, range, rng)
@@ -121,20 +169,51 @@ fn select_root_range<'a, R: Rng>(level: &'a crate::core::Level, rng: &mut R) -> 
 /// Walk down from a range at a given level to select an element.
 ///
 /// Uses rejection sampling at each level.
+///
+/// # Panics
+///
+/// Panics if we walk more levels than exist in the tree (indicates corruption).
 fn walk_down<R: Rng>(
     tree: &Tree,
     start_level: usize,
     start_range: &Range,
     rng: &mut R,
 ) -> Option<usize> {
+    let _guard = TimeoutGuard::new("walk_down");
+
     let mut current_level = start_level;
     let mut current_range = start_range;
 
+    // Track iterations to detect infinite loops
+    let mut level_iterations = 0;
+    let max_level_iterations = tree.max_level() + 10; // Allow some slack
+
     loop {
+        level_iterations += 1;
+
+        // Safety check: we should never iterate more times than there are levels
+        assert!(
+            level_iterations <= max_level_iterations,
+            "walk_down exceeded maximum iterations ({}) - tree may be corrupted. \
+             start_level={}, current_level={}, max_level={}",
+            max_level_iterations,
+            start_level,
+            current_level,
+            tree.max_level()
+        );
+
         // At level 1, children are elements - sample directly
         if current_level == 1 {
             return sample_from_range(current_range, rng);
         }
+
+        // Debug assertion: current_range should have children at higher levels
+        debug_assert!(
+            !current_range.is_empty(),
+            "Empty range {} at level {} during walk_down",
+            current_range.range_number(),
+            current_level
+        );
 
         // At higher levels, children are ranges from the previous level
         // Use rejection sampling to select a child
@@ -147,6 +226,14 @@ fn walk_down<R: Rng>(
         let next_level = tree.get_level(current_level - 1)?;
         let next_range = next_level.get_range(child_range_number)?;
 
+        // Debug assertion: next_range should exist
+        debug_assert!(
+            !next_range.is_empty(),
+            "walk_down reached empty range {} at level {}",
+            child_range_number,
+            current_level - 1
+        );
+
         current_level -= 1;
         current_range = next_range;
     }
@@ -155,13 +242,27 @@ fn walk_down<R: Rng>(
 /// Sample a child from a range using rejection sampling.
 ///
 /// Samples proportional to child weights.
+///
+/// # Algorithm
+///
+/// Uses log-space arithmetic to avoid overflow with large range numbers.
+/// Accept probability is computed as:
+/// - `accept_prob` = weight / `upper_bound` = 2^`log_weight` / 2^j = 2^(`log_weight` - j)
+///
+/// For very large or small exponents, we clamp the `accept_prob` to \[0, 1\].
+///
+/// # Panics
+///
+/// Panics if rejection sampling exceeds `MAX_REJECTION_ITERATIONS` iterations.
+/// With `debug-timeout` feature: also panics if the operation exceeds 1 second.
 fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
     if range.is_empty() {
         return None;
     }
 
     let j = range.range_number();
-    let upper_bound = 2.0_f64.powi(j); // Maximum weight in this range
+    // Use log-space upper bound to avoid overflow: log2(2^j) = j
+    let log_upper_bound = f64::from(j);
 
     // Collect children for rejection sampling
     let children: Vec<_> = range.children().collect();
@@ -169,14 +270,83 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
         return None;
     }
 
+    // Debug assertions about the range state
+    debug_assert!(
+        log_upper_bound.is_finite(),
+        "Invalid log_upper_bound {log_upper_bound} for range {j}",
+    );
+
+    // Compute expected acceptance probability for debugging (in log space)
+    #[cfg(feature = "debug-timeout")]
+    {
+        // Average log_accept_prob = avg(log_weight - j)
+        #[allow(clippy::cast_precision_loss)]
+        let avg_log_accept: f64 = children
+            .iter()
+            .map(|(_, lw)| lw - log_upper_bound)
+            .sum::<f64>()
+            / children.len() as f64;
+        if avg_log_accept < -10.0 {
+            // avg accept_prob < 2^-10 ≈ 0.001
+            eprintln!(
+                "[DEBUG] Very low avg log_accept_prob {:.2} (accept_prob ≈ {:.2e}) for range {} with {} children",
+                avg_log_accept,
+                avg_log_accept.exp2(),
+                j,
+                children.len()
+            );
+            dump_range_state(range);
+        }
+    }
+
+    // Use iteration counter to detect infinite loops
+    let mut counter = IterationCounter::new("sample_from_range", MAX_REJECTION_ITERATIONS);
+
     loop {
+        counter.tick();
+
         // Pick a random child uniformly
         let idx = rng.gen_range(0..children.len());
         let (child_idx, log_weight) = children[idx];
 
-        // Accept with probability weight / upper_bound
-        let weight = log_weight.exp2();
-        let accept_prob = weight / upper_bound;
+        // Debug assertion: log_weight should be finite (not deleted)
+        debug_assert!(
+            log_weight.is_finite(),
+            "Encountered deleted element {child_idx} with log_weight={log_weight} in range {j}",
+        );
+
+        // Compute acceptance probability in log space to avoid overflow:
+        // accept_prob = weight / upper_bound = 2^log_weight / 2^j = 2^(log_weight - j)
+        let log_accept_prob = log_weight - log_upper_bound;
+
+        // Convert to linear space, clamping to [0, 1]
+        // If log_accept_prob >= 0, then accept_prob >= 1, so always accept
+        // If log_accept_prob < -1074 (smallest f64 exponent), accept_prob ≈ 0
+        let accept_prob = if log_accept_prob >= 0.0 {
+            1.0
+        } else if log_accept_prob < -1074.0 {
+            0.0
+        } else {
+            log_accept_prob.exp2()
+        };
+
+        // Debug assertion: accept_prob should be valid
+        debug_assert!(
+            (0.0..=1.0).contains(&accept_prob),
+            "Invalid accept_prob {accept_prob} for child {child_idx} (log_weight={log_weight}, j={j})",
+        );
+
+        // Log very low acceptance probabilities
+        #[cfg(feature = "debug-timeout")]
+        if accept_prob < 1e-10 && counter.count().is_multiple_of(10000) {
+            eprintln!(
+                "[DEBUG] Very low accept_prob {:.2e} at iteration {} for child {} in range {}",
+                accept_prob,
+                counter.count(),
+                child_idx,
+                j
+            );
+        }
 
         if rng.gen::<f64>() < accept_prob {
             return Some(child_idx);
@@ -421,7 +591,7 @@ mod tests {
         // Test weights [1, 2, 3, 4] with optimized config
         // Note: With small n and high min_degree, all ranges become single-level roots
         // This is a known limitation - the algorithm needs multi-level structure
-        let log_weights = vec![0.0, 1.0, 1.5849625007211563, 2.0];
+        let log_weights = vec![0.0, 1.0, 1.584_962_500_721_156_3, 2.0];
         let tree = Tree::with_config(log_weights.clone(), OptimizationConfig::optimized());
         let mut rng = make_rng();
 
@@ -432,7 +602,7 @@ mod tests {
         // Just verify sampling works and returns valid indices
         let samples = sample_n(&tree, 1000, &mut rng);
         for &s in &samples {
-            assert!(s < 4, "Sample {} out of range", s);
+            assert!(s < 4, "Sample {s} out of range");
         }
 
         // Verify basic config DOES give correct distribution for comparison
@@ -443,27 +613,28 @@ mod tests {
             .map(|i| samples.iter().filter(|&&x| x == i).count())
             .collect();
 
+        #[allow(clippy::cast_precision_loss)]
         let fractions: Vec<f64> = counts.iter().map(|&c| c as f64 / 10000.0).collect();
 
+        let f0 = fractions[0];
         assert!(
-            fractions[0] > 0.07 && fractions[0] < 0.13,
-            "Basic config: Index 0 fraction was {}, expected ~0.10",
-            fractions[0]
+            f0 > 0.07 && f0 < 0.13,
+            "Basic config: Index 0 fraction was {f0}, expected ~0.10",
         );
+        let f1 = fractions[1];
         assert!(
-            fractions[1] > 0.15 && fractions[1] < 0.25,
-            "Basic config: Index 1 fraction was {}, expected ~0.20",
-            fractions[1]
+            f1 > 0.15 && f1 < 0.25,
+            "Basic config: Index 1 fraction was {f1}, expected ~0.20",
         );
+        let f2 = fractions[2];
         assert!(
-            fractions[2] > 0.25 && fractions[2] < 0.35,
-            "Basic config: Index 2 fraction was {}, expected ~0.30",
-            fractions[2]
+            f2 > 0.25 && f2 < 0.35,
+            "Basic config: Index 2 fraction was {f2}, expected ~0.30",
         );
+        let f3 = fractions[3];
         assert!(
-            fractions[3] > 0.35 && fractions[3] < 0.45,
-            "Basic config: Index 3 fraction was {}, expected ~0.40",
-            fractions[3]
+            f3 > 0.35 && f3 < 0.45,
+            "Basic config: Index 3 fraction was {f3}, expected ~0.40",
         );
     }
 }

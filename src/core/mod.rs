@@ -25,6 +25,7 @@
 #![allow(clippy::cast_sign_loss)]
 
 pub mod config;
+pub mod debug;
 pub mod level;
 pub mod range;
 pub mod sampler;
@@ -33,6 +34,9 @@ pub mod tree;
 pub mod update;
 
 pub use config::OptimizationConfig;
+pub use debug::IterationCounter;
+#[cfg(feature = "debug-timeout")]
+pub use debug::{dump_level_state, dump_range_state, dump_tree_state};
 pub use level::Level;
 pub use range::Range;
 pub use sampler::{sample, sample_n};
@@ -63,11 +67,25 @@ pub fn is_deleted_weight(log_weight: f64) -> bool {
 ///
 /// # Returns
 /// The range number j
+///
+/// # Panics
+///
+/// Panics if `log_weight` is infinite (use `DELETED_LOG_WEIGHT` for deleted elements).
 #[inline]
 #[must_use]
 #[allow(clippy::missing_const_for_fn)] // floor() is not const
 pub fn compute_range_number(log_weight: f64) -> i32 {
-    log_weight.floor() as i32 + 1
+    assert!(
+        log_weight.is_finite(),
+        "compute_range_number called with non-finite log_weight: {log_weight}",
+    );
+
+    // Since f64 can only represent values up to ~2^1024, log_weight is
+    // always in the range roughly [-1074, 1024], well within i32 bounds.
+    #[allow(clippy::cast_possible_truncation)]
+    let floor_i32 = log_weight.floor() as i32;
+
+    floor_i32 + 1
 }
 
 /// Check if a weight (given as log₂(w)) belongs in range j.

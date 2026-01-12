@@ -93,11 +93,16 @@ mod python_bindings {
         ///
         /// # Errors
         ///
-        /// Returns error if weight is negative or index is out of bounds.
+        /// Returns error if weight is negative, infinite, NaN, or index is out of bounds.
         pub fn update(&mut self, index: usize, weight: f64) -> PyResult<()> {
             if weight < 0.0 {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "weight must be non-negative",
+                ));
+            }
+            if !weight.is_finite() && weight != 0.0 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "weight must be finite (not infinity or NaN)",
                 ));
             }
             if index >= self.tree.len() {
@@ -108,7 +113,14 @@ mod python_bindings {
             let log_weight = if weight == 0.0 {
                 DELETED_LOG_WEIGHT
             } else {
-                weight.log2()
+                let lw = weight.log2();
+                // Check if log_weight is finite (weight wasn't too large or small)
+                if !lw.is_finite() {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "weight is too extreme (log2 overflows)",
+                    ));
+                }
+                lw
             };
             self.tree.update(index, log_weight);
             Ok(())
@@ -128,11 +140,16 @@ mod python_bindings {
         ///
         /// # Errors
         ///
-        /// Returns error if weight is non-positive.
+        /// Returns error if weight is non-positive, infinite, or NaN.
         pub fn insert(&mut self, weight: f64) -> PyResult<usize> {
             if weight <= 0.0 {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "weight must be positive",
+                ));
+            }
+            if !weight.is_finite() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "weight must be finite (not infinity or NaN)",
                 ));
             }
             let log_weight = weight.log2();

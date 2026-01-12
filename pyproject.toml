@@ -14,6 +14,10 @@ features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "dynamic_random_sampler"
 
+# For debug builds, you can enable the debug-timeout feature:
+# maturin develop --features debug-timeout
+# This will cause operations to panic if they exceed 1 second
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

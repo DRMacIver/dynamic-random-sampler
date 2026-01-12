@@ -20,6 +20,8 @@ default = ["python"]
 python = ["dep:pyo3"]
 # extension-module is needed for building the Python module
 extension-module = ["python", "pyo3/extension-module"]
+# Debug feature: enables operation timeouts and extra assertions
+debug-timeout = []
 
 [dev-dependencies]
 rand_chacha = "0.3"

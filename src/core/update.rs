@@ -405,6 +405,12 @@ impl MutableTree {
         } else if !is_root_now && level_num < self.levels.len() {
             // Non-root range: update weight in parent level
             let new_weight = self.get_range_weight(level_num, range_number);
+
+            // If the range is empty/gone (NEG_INFINITY), nothing to propagate
+            if is_deleted_weight(new_weight) {
+                return;
+            }
+
             if let Some(parent_level) = self.levels.get_mut(level_num) {
                 #[allow(clippy::cast_sign_loss)]
                 let child_idx = range_number as usize;
