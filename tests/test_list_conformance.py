@@ -71,8 +71,6 @@ class WeightListModel:
     def count(self, weight: float) -> int:
         return sum(1 for w in self.weights if abs(w - weight) < 1e-10)
 
-    def to_list(self) -> list[float]:
-        return list(self.weights)
 
 
 class SamplerListConformance(RuleBasedStateMachine):
@@ -304,13 +302,13 @@ class SamplerListConformance(RuleBasedStateMachine):
             f"count mismatch for {weight}: model={model_count}, sampler={sampler_count}"
 
     @rule()
-    def check_to_list(self) -> None:
+    def check_list_conversion(self) -> None:
         if self.model is None:
             return
-        model_list = self.model.to_list()
-        sampler_list = self.sampler.to_list()
+        model_list = list(self.model)
+        sampler_list = list(self.sampler)
         assert len(model_list) == len(sampler_list), (
-            f"to_list length mismatch: {len(model_list)} vs {len(sampler_list)}"
+            f"list() length mismatch: {len(model_list)} vs {len(sampler_list)}"
         )
         for i, (mw, sw) in enumerate(zip(model_list, sampler_list, strict=True)):
             assert abs(mw - sw) < 1e-9, (

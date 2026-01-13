@@ -12,6 +12,7 @@ pub mod core;
 #[cfg(feature = "python")]
 mod python_bindings {
     use pyo3::prelude::*;
+    use pyo3::types::PySlice;
     use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
@@ -120,6 +121,26 @@ mod python_bindings {
         }
     }
 
+    /// Get Python indices from a slice, given the current length.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    fn slice_indices(slice: &Bound<'_, PySlice>, len: usize) -> PyResult<Vec<usize>> {
+        let indices = slice.indices(len as isize)?;
+        let mut result = Vec::new();
+        let mut i = indices.start;
+        if indices.step > 0 {
+            while i < indices.stop {
+                result.push(i as usize);
+                i += indices.step;
+            }
+        } else {
+            while i > indices.stop {
+                result.push(i as usize);
+                i += indices.step;
+            }
+        }
+        Ok(result)
+    }
+
     #[pymethods]
     impl DynamicSampler {
         /// Create a new sampler from a list of weights.
@@ -166,49 +187,141 @@ mod python_bindings {
             self.index_map.len()
         }
 
-        /// Get the weight at the given index (supports negative indices).
+        /// Get the weight at the given index or slice.
+        ///
+        /// Supports negative indices and slices like Python lists.
         ///
         /// # Errors
         ///
         /// Returns error if index is out of bounds.
-        fn __getitem__(&mut self, index: isize) -> PyResult<f64> {
-            let internal_idx = self.map_index(index)?;
-            Ok(self.get_weight_internal(internal_idx))
+        #[allow(deprecated)]
+        fn __getitem__(&mut self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+            if let Ok(slice) = key.downcast::<PySlice>() {
+                // Handle slice
+                if self.index_map_dirty {
+                    self.rebuild_index_map();
+                }
+                let len = self.index_map.len();
+                let py_indices = slice_indices(slice, len)?;
+                let weights: Vec<f64> = py_indices
+                    .iter()
+                    .map(|&i| {
+                        let internal_idx = self.index_map[i];
+                        self.get_weight_internal(internal_idx)
+                    })
+                    .collect();
+                Ok(weights.into_pyobject(py)?.into_any().unbind())
+            } else if let Ok(index) = key.extract::<isize>() {
+                // Handle integer index
+                let internal_idx = self.map_index(index)?;
+                let weight = self.get_weight_internal(internal_idx);
+                Ok(weight.into_pyobject(py)?.into_any().unbind())
+            } else {
+                Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "indices must be integers or slices",
+                ))
+            }
         }
 
-        /// Set the weight at the given index (supports negative indices).
+        /// Set the weight at the given index or slice.
         ///
         /// Setting weight to 0 excludes the element from sampling but keeps it
         /// in the list (indices don't shift). Use `del` to actually remove.
         ///
+        /// For slices, value must be an iterable of the same length as the slice.
+        ///
         /// # Errors
         ///
         /// Returns error if weight is negative, infinite, NaN, or index is out of bounds.
-        fn __setitem__(&mut self, index: isize, weight: f64) -> PyResult<()> {
-            Self::validate_nonnegative_weight(weight)?;
-            let internal_idx = self.map_index(index)?;
-            let log_weight = if weight == 0.0 {
-                f64::NEG_INFINITY // Tree uses NEG_INFINITY for zero weight
+        #[allow(deprecated)]
+        fn __setitem__(
+            &mut self,
+            key: &Bound<'_, PyAny>,
+            value: &Bound<'_, PyAny>,
+        ) -> PyResult<()> {
+            if let Ok(slice) = key.downcast::<PySlice>() {
+                // Handle slice
+                if self.index_map_dirty {
+                    self.rebuild_index_map();
+                }
+                let len = self.index_map.len();
+                let py_indices = slice_indices(slice, len)?;
+                let weights: Vec<f64> = value.extract()?;
+                if weights.len() != py_indices.len() {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "attempt to assign sequence of size {} to slice of size {}",
+                        weights.len(),
+                        py_indices.len()
+                    )));
+                }
+                for &w in &weights {
+                    Self::validate_nonnegative_weight(w)?;
+                }
+                for (&py_idx, &weight) in py_indices.iter().zip(weights.iter()) {
+                    let internal_idx = self.index_map[py_idx];
+                    let log_weight = if weight == 0.0 {
+                        f64::NEG_INFINITY
+                    } else {
+                        weight.log2()
+                    };
+                    self.tree.update(internal_idx, log_weight);
+                }
+                Ok(())
+            } else if let Ok(index) = key.extract::<isize>() {
+                // Handle integer index
+                let weight: f64 = value.extract()?;
+                Self::validate_nonnegative_weight(weight)?;
+                let internal_idx = self.map_index(index)?;
+                let log_weight = if weight == 0.0 {
+                    f64::NEG_INFINITY // Tree uses NEG_INFINITY for zero weight
+                } else {
+                    weight.log2()
+                };
+                self.tree.update(internal_idx, log_weight);
+                Ok(())
             } else {
-                weight.log2()
-            };
-            self.tree.update(internal_idx, log_weight);
-            Ok(())
+                Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "indices must be integers or slices",
+                ))
+            }
         }
 
-        /// Delete the element at the given index (supports negative indices).
+        /// Delete the element at the given index or slice.
         ///
-        /// Removes the element and shifts subsequent indices down, like a Python list.
+        /// Removes the element(s) and shifts subsequent indices down, like a Python list.
         /// This is different from setting weight to 0 (which keeps the element).
         ///
         /// # Errors
         ///
         /// Returns error if index is out of bounds.
-        fn __delitem__(&mut self, index: isize) -> PyResult<()> {
-            let internal_idx = self.map_index(index)?;
-            self.tree.delete(internal_idx);
-            self.index_map_dirty = true;
-            Ok(())
+        #[allow(deprecated)]
+        fn __delitem__(&mut self, key: &Bound<'_, PyAny>) -> PyResult<()> {
+            if let Ok(slice) = key.downcast::<PySlice>() {
+                // Handle slice - delete in reverse order to avoid index shifting issues
+                if self.index_map_dirty {
+                    self.rebuild_index_map();
+                }
+                let len = self.index_map.len();
+                let mut py_indices = slice_indices(slice, len)?;
+                // Sort in reverse order so we delete from the end first
+                py_indices.sort_unstable_by(|a, b| b.cmp(a));
+                for py_idx in py_indices {
+                    let internal_idx = self.index_map[py_idx];
+                    self.tree.delete(internal_idx);
+                }
+                self.index_map_dirty = true;
+                Ok(())
+            } else if let Ok(index) = key.extract::<isize>() {
+                // Handle integer index
+                let internal_idx = self.map_index(index)?;
+                self.tree.delete(internal_idx);
+                self.index_map_dirty = true;
+                Ok(())
+            } else {
+                Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "indices must be integers or slices",
+                ))
+            }
         }
 
         /// Check if a weight value exists among active elements.
@@ -370,17 +483,6 @@ mod python_bindings {
             self.tree.delete(internal_idx);
             self.index_map_dirty = true;
             Ok(())
-        }
-
-        /// Return a copy of the weights as a list.
-        pub fn to_list(&mut self) -> Vec<f64> {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            self.index_map
-                .iter()
-                .map(|&i| self.get_weight_internal(i))
-                .collect()
         }
 
         /// Sample a random index according to the weight distribution.

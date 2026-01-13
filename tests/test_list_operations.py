@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 # =============================================================================
-# Item Access Tests (__getitem__, __setitem__, __delitem__)
+# Item Access Tests (__getitem__, __setitem__, __delitem__) - Single Index
 # =============================================================================
 
 
@@ -114,6 +114,99 @@ def test_delitem_negative_index() -> None:
 
 
 # =============================================================================
+# Slice Tests (__getitem__, __setitem__, __delitem__ with slices)
+# =============================================================================
+
+
+def test_getitem_slice_basic() -> None:
+    """Test getting weights with a slice."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    result = sampler[1:4]
+    assert len(result) == 3
+    assert abs(result[0] - 2.0) < 1e-10
+    assert abs(result[1] - 3.0) < 1e-10
+    assert abs(result[2] - 4.0) < 1e-10
+
+
+def test_getitem_slice_negative() -> None:
+    """Test getting weights with negative slice indices."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    result = sampler[-3:-1]
+    assert len(result) == 2
+    assert abs(result[0] - 3.0) < 1e-10
+    assert abs(result[1] - 4.0) < 1e-10
+
+
+def test_getitem_slice_step() -> None:
+    """Test getting weights with slice step."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    result = sampler[::2]  # Every other element
+    assert len(result) == 3
+    assert abs(result[0] - 1.0) < 1e-10
+    assert abs(result[1] - 3.0) < 1e-10
+    assert abs(result[2] - 5.0) < 1e-10
+
+
+def test_getitem_slice_empty() -> None:
+    """Test getting empty slice."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    result = sampler[1:1]
+    assert len(result) == 0
+
+
+def test_setitem_slice_basic() -> None:
+    """Test setting weights with a slice."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    sampler[1:4] = [10.0, 20.0, 30.0]
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 10.0) < 1e-10
+    assert abs(sampler[2] - 20.0) < 1e-10
+    assert abs(sampler[3] - 30.0) < 1e-10
+    assert abs(sampler[4] - 5.0) < 1e-10
+
+
+def test_setitem_slice_wrong_length() -> None:
+    """Test setting slice with wrong length raises error."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    with pytest.raises(ValueError, match="attempt to assign sequence"):
+        sampler[1:4] = [10.0, 20.0]  # Wrong length
+
+
+def test_delitem_slice_basic() -> None:
+    """Test deleting elements with a slice."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    del sampler[1:4]
+    assert len(sampler) == 2
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 5.0) < 1e-10
+
+
+def test_delitem_slice_step() -> None:
+    """Test deleting elements with slice step."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    del sampler[::2]  # Delete elements at indices 0, 2, 4
+    assert len(sampler) == 2
+    assert abs(sampler[0] - 2.0) < 1e-10
+    assert abs(sampler[1] - 4.0) < 1e-10
+
+
+# =============================================================================
 # Contains Tests (__contains__)
 # =============================================================================
 
@@ -146,7 +239,7 @@ def test_contains_deleted_weight() -> None:
 
 
 # =============================================================================
-# Iteration Tests (__iter__, to_list)
+# Iteration Tests (__iter__)
 # =============================================================================
 
 
@@ -188,12 +281,16 @@ def test_iter_includes_zero_weight_elements() -> None:
     assert abs(weights[2] - 3.0) < 1e-10
 
 
-def test_to_list_same_as_iter() -> None:
-    """Test to_list returns same as list()."""
+def test_list_conversion() -> None:
+    """Test list() works on sampler."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    assert sampler.to_list() == list(sampler)
+    weights = list(sampler)
+    assert len(weights) == 3
+    assert abs(weights[0] - 1.0) < 1e-10
+    assert abs(weights[1] - 2.0) < 1e-10
+    assert abs(weights[2] - 3.0) < 1e-10
 
 
 # =============================================================================
