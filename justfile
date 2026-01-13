@@ -58,6 +58,10 @@ test-v:
 test-cov:
     uv run pytest --cov --cov-report=term-missing
 
+# Run Rust benchmarks
+bench:
+    cargo bench
+
 # Run all linters
 lint: lint-rust lint-py
 
