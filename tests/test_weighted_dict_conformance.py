@@ -7,6 +7,7 @@ with the additional constraint that weights must be non-negative.
 from typing import Any
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import settings
 from hypothesis.stateful import (
     RuleBasedStateMachine,
@@ -367,7 +368,8 @@ class WeightedDictConformance(RuleBasedStateMachine):
 
 
 # Configure and run the test
-TestWeightedDictConformance = WeightedDictConformance.TestCase
-TestWeightedDictConformance.settings = settings(
-    max_examples=100, stateful_step_count=50
-)
+@pytest.mark.slow
+class TestWeightedDictConformance(WeightedDictConformance.TestCase):  # pyright: ignore[reportUntypedBaseClass]
+    """Stateful test class - slow due to comprehensive state exploration."""
+
+    settings = settings(max_examples=100, stateful_step_count=50)

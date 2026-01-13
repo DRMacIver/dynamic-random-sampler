@@ -7,6 +7,7 @@ with stable indices (no index-shifting operations).
 from typing import Any
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import settings
 from hypothesis.stateful import (
     RuleBasedStateMachine,
@@ -289,5 +290,8 @@ class SamplerListConformance(RuleBasedStateMachine):
 
 
 # Configure and run the test
-TestSamplerListConformance = SamplerListConformance.TestCase
-TestSamplerListConformance.settings = settings(max_examples=100, stateful_step_count=50)
+@pytest.mark.slow
+class TestSamplerListConformance(SamplerListConformance.TestCase):  # pyright: ignore[reportUntypedBaseClass]
+    """Stateful test class - slow due to comprehensive state exploration."""
+
+    settings = settings(max_examples=100, stateful_step_count=50)

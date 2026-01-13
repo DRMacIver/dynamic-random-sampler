@@ -7,6 +7,7 @@ distribution based on weights.
 from typing import Any
 
 import hypothesis.strategies as st
+import pytest
 from hypothesis import given, settings
 
 # Strategy for generating a dict of positive weights
@@ -22,6 +23,7 @@ weights_dict_strategy = st.dictionaries(
 )
 
 
+@pytest.mark.slow
 @given(weights=weights_dict_strategy)
 @settings(max_examples=20, deadline=None)
 def test_all_keys_can_be_sampled(weights: dict[str, float]) -> None:
