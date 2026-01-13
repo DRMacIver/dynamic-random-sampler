@@ -218,11 +218,11 @@ impl MutableTree {
             let new_range = compute_range_number(new_log_weight);
             self.element_ranges[index] = new_range;
 
-            // Insert into level 1
-            if self.levels.is_empty() {
-                let level1 = Level::with_config(1, self.config);
-                self.levels.push(level1);
-            }
+            // Levels should always exist if we have elements (invariant)
+            debug_assert!(
+                !self.levels.is_empty(),
+                "Levels empty during undelete - tree invariant violated"
+            );
 
             // Check if range was root before insertion
             let was_root = self
@@ -540,50 +540,49 @@ impl MutableTree {
 
     /// Propagate weight changes up the tree when an element's weight changes
     /// but it stays in the same range.
+    ///
+    /// Note: Root status changes (root <-> non-root) are handled by
+    /// `propagate_insert`, `propagate_delete`, and `propagate_structure_changes`.
+    /// This function only propagates weight updates through existing non-root ranges.
     fn propagate_weight_changes(&mut self, level_num: usize, range_number: i32) {
-        if level_num > self.levels.len() {
+        // Base case: no more levels to propagate to
+        if level_num == 0 || level_num > self.levels.len() {
             return;
         }
 
-        // Check if this range's degree changed (root <-> non-root)
-        let was_root_before = self.was_root_at_level(level_num, range_number);
-
-        // Recompute and cache the range weight
-        let new_weight = if level_num <= self.levels.len() {
-            let level = &mut self.levels[level_num - 1];
-            if let Some(range) = level.get_range_mut(range_number) {
-                range.total_log_weight()
-            } else {
-                return;
-            }
-        } else {
-            return;
+        // Get the range and recompute its total weight
+        let level = &mut self.levels[level_num - 1];
+        let Some(range) = level.get_range_mut(range_number) else {
+            return; // Range doesn't exist (was removed)
         };
+        let new_weight = range.total_log_weight();
 
-        let is_root_now = self.is_root_at_level(level_num, range_number);
+        // Check if this range is a root - if so, no parent to update
+        let is_root = range.is_root();
 
-        // If root status changed, may need to restructure
-        if was_root_before != is_root_now {
-            self.handle_root_status_change(level_num, range_number, is_root_now);
-        } else if !is_root_now && level_num < self.levels.len() {
-            // Non-root range: update weight in parent level
+        // Non-root ranges need to update their parent
+        if !is_root && level_num < self.levels.len() {
+            // Deleted weight means the range is empty - handled by propagate_delete
+            debug_assert!(
+                !is_deleted_weight(new_weight),
+                "Non-root range {} at level {} has deleted weight",
+                range_number,
+                level_num
+            );
 
-            // If the range is empty/gone (NEG_INFINITY), nothing to propagate
-            if is_deleted_weight(new_weight) {
-                return;
-            }
+            // Update weight in parent level
+            #[allow(clippy::cast_sign_loss)]
+            let child_idx = range_number as usize;
+            let parent_range_number = compute_range_number(new_weight);
 
             if let Some(parent_level) = self.levels.get_mut(level_num) {
-                #[allow(clippy::cast_sign_loss)]
-                let child_idx = range_number as usize;
-                if let Some(range) = parent_level.get_range_mut(compute_range_number(new_weight)) {
-                    range.update_child_weight(child_idx, new_weight);
+                if let Some(parent_range) = parent_level.get_range_mut(parent_range_number) {
+                    parent_range.update_child_weight(child_idx, new_weight);
                 }
             }
+
             // Continue propagating up
-            #[allow(clippy::cast_sign_loss)]
-            let parent_range = compute_range_number(new_weight);
-            self.propagate_weight_changes(level_num + 1, parent_range);
+            self.propagate_weight_changes(level_num + 1, parent_range_number);
         }
     }
 
@@ -627,66 +626,6 @@ impl MutableTree {
                 self.propagate_insert(level_num, new_range, total_weight);
             }
         }
-    }
-
-    /// Rebuild the tree from a given level upward.
-    fn rebuild_from_level(&mut self, from_level: usize) {
-        // Truncate levels and rebuild
-        if from_level > 0 && from_level <= self.levels.len() {
-            self.levels.truncate(from_level);
-        }
-
-        // Rebuild higher levels
-        loop {
-            let current_level_num = self.levels.len();
-            let current_level = &self.levels[current_level_num - 1];
-
-            let non_roots: Vec<_> = current_level
-                .non_root_ranges()
-                .map(|(j, r)| (j, r.compute_total_log_weight()))
-                .collect();
-
-            if non_roots.is_empty() {
-                break;
-            }
-
-            let mut next_level = Level::with_config(current_level_num + 1, self.config);
-            for (range_number, range_log_weight) in non_roots {
-                #[allow(clippy::cast_sign_loss)]
-                let child_idx = range_number as usize;
-                next_level.insert_child(child_idx, range_log_weight);
-            }
-            self.levels.push(next_level);
-        }
-    }
-
-    /// Check if a range was a root before any changes.
-    fn was_root_at_level(&self, level_num: usize, range_number: i32) -> bool {
-        use crate::core::Range;
-        self.levels
-            .get(level_num - 1)
-            .and_then(|l| l.get_range(range_number))
-            .is_some_and(Range::is_root)
-    }
-
-    /// Check if a range is currently a root.
-    fn is_root_at_level(&self, level_num: usize, range_number: i32) -> bool {
-        use crate::core::Range;
-        self.levels
-            .get(level_num - 1)
-            .and_then(|l| l.get_range(range_number))
-            .is_some_and(Range::is_root)
-    }
-
-    /// Handle when a range's root status changes.
-    fn handle_root_status_change(
-        &mut self,
-        level_num: usize,
-        _range_number: i32,
-        _is_now_root: bool,
-    ) {
-        // Rebuild from this level for correctness
-        self.rebuild_from_level(level_num);
     }
 
     /// Get a level by number (1-indexed).
