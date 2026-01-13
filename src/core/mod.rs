@@ -150,6 +150,7 @@ pub fn log_sum_exp_slice(log_weights: &[f64]) -> f64 {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

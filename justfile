@@ -143,3 +143,8 @@ sync-from-template:
         echo "Automatic sync needs assistance. Launching interactive mode..."
         claude --append-system-prompt "$SYNC_PROMPT"
     fi
+
+# Run coverage with nightly and verify thresholds
+coverage:
+    cargo +nightly llvm-cov --no-report
+    cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"

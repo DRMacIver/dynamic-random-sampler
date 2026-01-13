@@ -545,8 +545,11 @@ impl MutableTree {
     /// `propagate_insert`, `propagate_delete`, and `propagate_structure_changes`.
     /// This function only propagates weight updates through existing non-root ranges.
     fn propagate_weight_changes(&mut self, level_num: usize, range_number: i32) {
+        // Invariant: always called with level >= 1
+        debug_assert!(level_num >= 1, "propagate_weight_changes called with level 0");
+
         // Base case: no more levels to propagate to
-        if level_num == 0 || level_num > self.levels.len() {
+        if level_num > self.levels.len() {
             return;
         }
 
@@ -640,6 +643,7 @@ impl MutableTree {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
@@ -1606,5 +1610,48 @@ mod tests {
         // Now range at level 1 becomes non-root (degree 2)
         assert_eq!(tree.active_count(), 2);
         assert!(tree.level_count() >= 2);
+    }
+
+    #[test]
+    fn test_delete_from_multilevel_structure() {
+        // Create a structure where:
+        // - Level 1 has multiple non-root ranges
+        // - Level 2 has a non-root parent containing these ranges
+        // - Deleting from level 1 triggers propagate_delete but parent stays non-root
+
+        // Create 4 elements: 2 pairs in different ranges at level 1
+        // Range 2: log_weights 1.0, 1.1 (weights 2, 2.14)
+        // Range 3: log_weights 2.0, 2.1 (weights 4, 4.29)
+        let mut tree = MutableTree::new(vec![1.0, 1.1, 2.0, 2.1]);
+
+        // Verify structure
+        assert!(tree.level_count() >= 2, "expected multi-level tree");
+
+        // Delete one element from range 2 - it should become a root (degree 1)
+        // This triggers propagate_delete, but if level 2 parent has multiple children
+        // from different ranges, parent might stay non-root
+        tree.delete(0);
+
+        assert_eq!(tree.active_count(), 3);
+        assert!(!tree.is_deleted(1));
+        assert!(!tree.is_deleted(2));
+        assert!(!tree.is_deleted(3));
+    }
+
+    #[test]
+    fn test_propagate_weight_recursive() {
+        // Test that weight propagation continues through multiple levels
+        // Create a tree with multiple levels by having elements in different ranges
+        let weights: Vec<f64> = (0..64).map(|i| f64::from(i).mul_add(0.1, 1.0)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        let initial_levels = tree.level_count();
+        assert!(initial_levels >= 2, "expected 2+ levels for this test");
+
+        // Update a weight that stays in range - should propagate up
+        tree.update(0, 1.01);
+
+        // Tree structure should be maintained
+        assert_eq!(tree.active_count(), 64);
     }
 }

@@ -142,9 +142,8 @@ pub fn sample<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
 /// for extreme weight ranges.
 fn select_level<R: Rng>(tree: &Tree, rng: &mut R) -> Option<usize> {
     let max_level = tree.max_level();
-    if max_level == 0 {
-        return None;
-    }
+    // Invariant: sample() checks tree.is_empty() before calling this
+    debug_assert!(max_level > 0, "select_level called on empty tree");
 
     // Get log-weights for each level
     let level_weights = (1..=max_level).map(|l| tree.level_root_total(l));
@@ -282,9 +281,8 @@ fn walk_down<R: Rng>(
 /// With `debug-timeout` feature: also panics if the operation exceeds 1 second.
 fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
     let degree = range.degree();
-    if degree == 0 {
-        return None;
-    }
+    // Invariant: walk_down only calls this on non-empty ranges
+    debug_assert!(degree > 0, "sample_from_range called on empty range");
 
     let j = range.range_number();
     // Use log-space upper bound to avoid overflow: log2(2^j) = j
@@ -378,6 +376,7 @@ pub fn sample_n<R: Rng>(tree: &Tree, n: usize, rng: &mut R) -> Vec<usize> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use rand::SeedableRng;

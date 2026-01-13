@@ -5,6 +5,8 @@
 //!
 //! The implementation will be completed inside the devcontainer.
 
+// Enable coverage attribute when running with coverage_nightly cfg
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 #![allow(clippy::redundant_pub_crate)]
 
 pub mod core;

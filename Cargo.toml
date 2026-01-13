@@ -38,6 +38,8 @@ codegen-units = 1
 
 [lints.rust]
 unsafe_code = "deny"
+# Allow coverage_nightly cfg for conditional coverage attributes
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage_nightly)"] }
 
 [lints.clippy]
 all = "warn"
