@@ -254,4 +254,10 @@ mod tests {
         let result = log_sum_exp([DELETED_LOG_WEIGHT, DELETED_LOG_WEIGHT].into_iter());
         assert!(result == f64::NEG_INFINITY);
     }
+
+    #[test]
+    #[should_panic(expected = "compute_range_number called with non-finite log_weight")]
+    fn test_compute_range_number_panics_on_infinite() {
+        let _ = compute_range_number(f64::INFINITY);
+    }
 }

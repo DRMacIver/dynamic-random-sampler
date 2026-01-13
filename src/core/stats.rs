@@ -296,4 +296,50 @@ mod tests {
         assert!(result.passes(0.10)); // 0.17 > 0.10
         assert!(!result.passes(0.20)); // 0.17 < 0.20
     }
+
+    // -------------------------------------------------------------------------
+    // Additional Coverage Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chi_squared_sf_zero_df() {
+        // k = 0 degrees of freedom should return 0
+        let p = chi_squared_sf(5.0, 0);
+        assert!((p - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_chi_squared_sf_negative_x() {
+        // x <= 0 should return 1.0
+        let p = chi_squared_sf(-1.0, 3);
+        assert!((p - 1.0).abs() < 1e-10);
+
+        let p_zero = chi_squared_sf(0.0, 3);
+        assert!((p_zero - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ln_gamma_small_values() {
+        // Test reflection formula: x < 0.5
+        let result = ln_gamma(0.3);
+        // Gamma(0.3) = Gamma(1.3) / 0.3
+        // We just check it returns a finite value
+        assert!(result.is_finite());
+    }
+
+    #[test]
+    fn test_regularized_gamma_p_edge_cases() {
+        // Test internal functions via chi_squared_sf
+        // For very small x, P(a, x) should be near 0
+        let p = chi_squared_sf(0.001, 10);
+        assert!(p > 0.99);
+    }
+
+    #[test]
+    fn test_gamma_cf_branch() {
+        // Test the continued fraction branch (x >= a + 1)
+        // For large x, chi_squared_sf should return near 0
+        let p = chi_squared_sf(100.0, 2);
+        assert!(p < 0.001);
+    }
 }

@@ -661,4 +661,64 @@ mod tests {
         assert_eq!(level.get_range(2).unwrap().degree(), 1);
         assert_eq!(level.get_range(3).unwrap().degree(), 1);
     }
+
+    // -------------------------------------------------------------------------
+    // Additional Coverage Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_config_accessor() {
+        let level = Level::new(1);
+        let config = level.config();
+        // Basic config has min_degree = 2
+        assert_eq!(config.min_degree(), 2);
+    }
+
+    #[test]
+    fn test_min_degree_accessor() {
+        let level = Level::new(1);
+        assert_eq!(level.min_degree(), 2);
+
+        let optimized = Level::with_config(1, crate::core::OptimizationConfig::optimized());
+        assert_eq!(optimized.min_degree(), 32);
+    }
+
+    #[test]
+    fn test_upsert_child_with_deleted_weight() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        let mut level = Level::new(1);
+        level.insert_child(0, 1.0); // Add a regular child
+
+        // Upserting a deleted weight should be a no-op
+        level.upsert_child(1, DELETED_LOG_WEIGHT);
+
+        // Should still have only 1 child
+        assert_eq!(level.range_count(), 1);
+        assert_eq!(level.get_range(2).unwrap().degree(), 1);
+    }
+
+    #[test]
+    fn test_remove_child_from_nonexistent_range() {
+        let mut level = Level::new(1);
+        level.insert_child(0, 1.0); // range 2
+
+        // Try to remove from a range that doesn't exist
+        let result = level.remove_child(999, 0);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_root_total_log_weight_cache_hit() {
+        let mut level = Level::new(1);
+        level.insert_child(0, 1.0); // weight 2, root
+
+        // First call - computes and caches
+        let total1 = level.root_total_log_weight();
+
+        // Second call - should return cached value
+        let total2 = level.root_total_log_weight();
+
+        assert!((total1 - total2).abs() < 1e-10);
+    }
 }

@@ -450,4 +450,42 @@ mod tests {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Additional Coverage Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_new_optimized() {
+        let tree = Tree::new_optimized(vec![1.0, 2.0, 3.0]);
+        assert_eq!(tree.len(), 3);
+        // Optimized config has min_degree = 32
+        assert_eq!(tree.config().min_degree(), 32);
+    }
+
+    #[test]
+    fn test_get_level_mut() {
+        let mut tree = Tree::new(vec![1.0, 1.1]); // same range -> multi-level
+
+        // Get mutable level
+        let level = tree.get_level_mut(1);
+        assert!(level.is_some());
+        let level = level.unwrap();
+        assert_eq!(level.level_number(), 1);
+
+        // Level 0 is not accessible
+        assert!(tree.get_level_mut(0).is_none());
+
+        // Out of bounds
+        assert!(tree.get_level_mut(100).is_none());
+    }
+
+    #[test]
+    fn test_root_count_at_level_returns_zero_for_invalid() {
+        let tree = Tree::new(vec![1.0]);
+
+        // Level 0 and out-of-bounds should return 0
+        assert_eq!(tree.root_count_at_level(0), 0);
+        assert_eq!(tree.root_count_at_level(100), 0);
+    }
 }

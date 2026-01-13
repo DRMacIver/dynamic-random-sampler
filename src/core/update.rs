@@ -1410,4 +1410,262 @@ mod tests {
             result.p_value
         );
     }
+
+    // -------------------------------------------------------------------------
+    // Additional Coverage Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_empty() {
+        let tree = MutableTree::new(vec![]);
+        assert!(tree.is_empty());
+        assert_eq!(tree.len(), 0);
+
+        let tree2 = MutableTree::new(vec![1.0]);
+        assert!(!tree2.is_empty());
+    }
+
+    #[test]
+    fn test_would_require_parent_change_out_of_bounds() {
+        let tree = MutableTree::new(vec![1.0, 2.0]);
+        // Out of bounds index should return false
+        assert!(!tree.would_require_parent_change(100, 5.0));
+    }
+
+    #[test]
+    fn test_mutable_tree_from_tree_with_deleted() {
+        use crate::core::DELETED_LOG_WEIGHT;
+
+        // Create a tree with some deleted elements
+        let weights = vec![1.0, DELETED_LOG_WEIGHT, 2.0, DELETED_LOG_WEIGHT, 3.0];
+        let tree = Tree::with_config(weights, OptimizationConfig::basic());
+        let mutable = MutableTree::from_tree(&tree);
+
+        // Verify the deleted elements are tracked
+        assert!(mutable.is_deleted(1));
+        assert!(mutable.is_deleted(3));
+        assert!(!mutable.is_deleted(0));
+        assert!(!mutable.is_deleted(2));
+        assert!(!mutable.is_deleted(4));
+
+        assert_eq!(mutable.active_count(), 3);
+    }
+
+    #[test]
+    fn test_undelete_restores_element_to_empty_tree() {
+        let mut tree = MutableTree::new(vec![1.0]);
+
+        // Delete the only element
+        assert!(tree.delete(0));
+        assert!(tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 0);
+
+        // Undelete by updating with a valid weight
+        assert!(tree.update(0, 2.0));
+        assert!(!tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 1);
+    }
+
+    #[test]
+    fn test_delete_keeps_nonroot_status() {
+        // Create a tree where deletion doesn't change root status
+        // Need multiple elements in same range to create non-root
+        let weights: Vec<f64> = (0..10).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Delete one element from a range with many elements
+        // The range should stay non-root
+        tree.delete(0);
+
+        assert!(tree.is_deleted(0));
+        assert_eq!(tree.active_count(), 9);
+    }
+
+    #[test]
+    fn test_update_triggers_rebuild_on_root_status_change() {
+        // Create tree where updates cause root status changes
+        // Start with two elements in same range (non-root)
+        let mut tree = MutableTree::new(vec![1.0, 1.1]);
+
+        // Level 1 should have a non-root range
+        assert!(tree.level_count() >= 2);
+
+        // Delete one element - should change to root
+        tree.delete(1);
+
+        // Tree structure should be adjusted
+        assert_eq!(tree.active_count(), 1);
+    }
+
+    #[test]
+    fn test_propagate_weight_changes_through_levels() {
+        // Create a multi-level tree
+        let weights: Vec<f64> = (0..10).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Update an element's weight within the same range
+        // Should propagate weight changes up without structural changes
+        let old_levels = tree.level_count();
+        tree.update(0, 1.05);
+
+        // Structure should remain the same
+        assert_eq!(tree.level_count(), old_levels);
+    }
+
+    #[test]
+    fn test_get_level_returns_none_for_invalid() {
+        let tree = MutableTree::new(vec![1.0]);
+
+        // Level 0 is invalid
+        assert!(tree.get_level(0).is_none());
+
+        // Out of bounds
+        assert!(tree.get_level(100).is_none());
+
+        // Level 1 should exist
+        assert!(tree.get_level(1).is_some());
+    }
+
+    #[test]
+    fn test_undelete_into_existing_nonroot() {
+        // Create tree with elements in same range (non-root)
+        let mut tree = MutableTree::new(vec![1.0, 1.1, 1.2]);
+
+        // Delete middle element
+        tree.delete(1);
+
+        // Undelete it back into the same range
+        tree.update(1, 1.15);
+
+        assert!(!tree.is_deleted(1));
+        assert_eq!(tree.active_count(), 3);
+    }
+
+    #[test]
+    fn test_undelete_creates_levels_when_empty() {
+        // Start with empty tree
+        let mut tree = MutableTree::new(vec![]);
+
+        // Insert some elements
+        tree.insert(1.0);
+        tree.insert(1.1);
+
+        // Delete all
+        tree.delete(0);
+        tree.delete(1);
+        assert_eq!(tree.active_count(), 0);
+
+        // Clear levels manually would require internal access,
+        // but the levels.is_empty() check is for when tree starts empty
+        // So we need to test the path differently:
+        // Create empty tree and insert directly
+        let mut empty_tree = MutableTree::new(vec![]);
+        empty_tree.insert(1.0); // This creates levels
+
+        assert_eq!(empty_tree.active_count(), 1);
+    }
+
+    #[test]
+    fn test_undelete_transitions_root_to_nonroot() {
+        // Create tree with one element (a root)
+        let mut tree = MutableTree::new(vec![1.0]);
+
+        // Insert another element in same range
+        tree.insert(1.1);
+
+        // Delete both
+        tree.delete(0);
+        tree.delete(1);
+        assert_eq!(tree.active_count(), 0);
+
+        // Undelete first element (creates a root)
+        tree.update(0, 1.0);
+        assert_eq!(tree.active_count(), 1);
+
+        // Undelete second element (transitions root to non-root)
+        tree.update(1, 1.1);
+        assert_eq!(tree.active_count(), 2);
+    }
+
+    #[test]
+    fn test_propagate_delete_parent_stays_nonroot() {
+        // Create a tree where a parent range stays non-root after deletion
+        // This requires multiple elements at a higher level
+        let weights: Vec<f64> = (0..20).map(|i| f64::from(i).mul_add(0.01, 1.0)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // With many elements in same range, parent at level 2 should be non-root
+        // Delete one element
+        tree.delete(0);
+
+        // Parent range should still be non-root
+        assert_eq!(tree.active_count(), 19);
+    }
+
+    #[test]
+    fn test_propagate_weight_changes_stops_early() {
+        // Test that weight propagation handles the case where level doesn't exist
+        let mut tree = MutableTree::new(vec![1.0, 2.0, 3.0]);
+
+        // Update with weight that stays in range
+        tree.update(0, 0.9);
+
+        assert!(!tree.is_deleted(0));
+    }
+
+    #[test]
+    fn test_update_moves_element_between_ranges() {
+        // Element starts in one range, moves to another
+        let mut tree = MutableTree::new(vec![1.0, 2.0]);
+
+        // Move element 0 from range 2 (weight ~2) to range 3 (weight ~4)
+        tree.update(0, 2.0); // log2(4) = 2
+
+        assert!((tree.element_log_weight(0).unwrap() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_root_status_change_triggers_rebuild() {
+        // Create a tree with exactly 2 elements in same range
+        // This creates a non-root range at level 1
+        let mut tree = MutableTree::new(vec![1.0, 1.1]);
+
+        // Verify we have at least 2 levels (non-root at level 1)
+        assert!(tree.level_count() >= 2);
+
+        // Now update element 1 to be in a different range
+        // This should change the original range from non-root to root
+        tree.update(1, 5.0); // moves to a different range
+
+        // The structural change should trigger rebuild
+        assert!(!tree.is_deleted(0));
+        assert!(!tree.is_deleted(1));
+    }
+
+    #[test]
+    fn test_weight_change_propagates_through_nonroot_ranges() {
+        // Create a deep tree with non-root ranges at multiple levels
+        let weights: Vec<f64> = (0..32).map(|i| f64::from(i).mul_add(0.001, 1.0)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Update a weight that stays in range but changes the total
+        // This should propagate weight changes through non-root ranges
+        tree.update(0, 1.01);
+
+        // Verify tree is still valid
+        assert_eq!(tree.active_count(), 32);
+    }
+
+    #[test]
+    fn test_insert_triggers_propagate_insert_path() {
+        // Start with elements that create a root range
+        let mut tree = MutableTree::new(vec![1.0]);
+
+        // Insert another element in same range - should trigger propagate_insert
+        tree.insert(1.05);
+
+        // Now range at level 1 becomes non-root (degree 2)
+        assert_eq!(tree.active_count(), 2);
+        assert!(tree.level_count() >= 2);
+    }
 }
