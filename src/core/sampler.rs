@@ -169,10 +169,13 @@ fn select_root_range<'a, R: Rng>(level: &'a crate::core::Level, rng: &mut R) -> 
     for (_, range) in level.root_ranges() {
         let log_weight = range.compute_total_log_weight();
 
-        // Skip ranges with zero weight
-        if log_weight.is_infinite() && log_weight < 0.0 {
-            continue;
-        }
+        // Invariant: ranges in root_ranges() always have positive total weight
+        // (empty ranges are removed, and insert_child skips deleted elements)
+        debug_assert!(
+            !(log_weight.is_infinite() && log_weight < 0.0),
+            "Root range {} has zero total weight",
+            range.range_number()
+        );
 
         // Generate Gumbel(0, 1) noise
         let u: f64 = rng.gen_range(f64::MIN_POSITIVE..1.0);
