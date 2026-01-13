@@ -30,6 +30,10 @@ export PATH="$HOME/.cargo/bin:$PATH"
 echo "Installing samply profiler..."
 cargo install --locked samply 2>/dev/null || true
 
+# Install cargo-criterion for nicer benchmark output
+echo "Installing cargo-criterion..."
+cargo install --locked cargo-criterion 2>/dev/null || true
+
 # Install Python project dependencies
 if [ -f pyproject.toml ]; then
     uv sync

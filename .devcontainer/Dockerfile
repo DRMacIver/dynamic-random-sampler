@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     python3-dev \
+    gnuplot \
     && rm -rf /var/lib/apt/lists/*
 
 # Try to install profiling tools (optional - may not be available on all architectures)
