@@ -663,6 +663,347 @@ mod python_bindings {
         }
     }
 
+    // =========================================================================
+    // WeightedDict - A dict-like type with weighted random sampling
+    // =========================================================================
+
+    use std::collections::HashMap;
+
+    /// A dictionary-like type with weighted random sampling.
+    ///
+    /// Keys are arbitrary hashable Python objects (stored as String for simplicity).
+    /// Values are non-negative floats representing weights.
+    ///
+    /// The `sample()` method returns a random key with probability proportional
+    /// to its weight.
+    ///
+    /// # Implementation
+    ///
+    /// Uses a `Vec<K>` for keys, `HashMap<K, usize>` for key->index lookup,
+    /// and `DynamicSampler` for weights. Deletion uses swap-remove to maintain
+    /// O(log* N) sampling performance.
+    #[pyclass]
+    pub struct WeightedDict {
+        /// Keys stored in order (with swap-remove on delete)
+        keys: Vec<String>,
+        /// Maps keys to their index in the vec
+        key_to_index: HashMap<String, usize>,
+        /// The tree stores weights at corresponding indices
+        tree: MutableTree,
+        /// Internal random number generator
+        rng: ChaCha8Rng,
+    }
+
+    impl WeightedDict {
+        /// Get the weight at an internal index.
+        fn get_weight_internal(&self, internal_idx: usize) -> f64 {
+            self.tree
+                .element_log_weight(internal_idx)
+                .map_or(0.0, |lw| {
+                    if lw == f64::NEG_INFINITY {
+                        0.0
+                    } else {
+                        lw.exp2()
+                    }
+                })
+        }
+
+        /// Validate a weight value (must be non-negative and finite).
+        fn validate_weight(weight: f64) -> PyResult<()> {
+            if weight < 0.0 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "weight must be non-negative",
+                ));
+            }
+            if !weight.is_finite() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "weight must be finite (not infinity or NaN)",
+                ));
+            }
+            Ok(())
+        }
+    }
+
+    #[pymethods]
+    impl WeightedDict {
+        /// Create a new empty `WeightedDict`.
+        ///
+        /// # Arguments
+        ///
+        /// * `seed` - Optional seed for the random number generator
+        #[new]
+        #[pyo3(signature = (seed=None))]
+        pub fn new(seed: Option<u64>) -> Self {
+            let rng = seed.map_or_else(ChaCha8Rng::from_entropy, ChaCha8Rng::seed_from_u64);
+            Self {
+                keys: Vec::new(),
+                key_to_index: HashMap::new(),
+                tree: MutableTree::new(vec![]),
+                rng,
+            }
+        }
+
+        /// Return the number of keys.
+        #[allow(clippy::missing_const_for_fn)]
+        fn __len__(&self) -> usize {
+            self.keys.len()
+        }
+
+        /// Get the weight for a key.
+        ///
+        /// # Errors
+        ///
+        /// Returns `KeyError` if the key is not present.
+        fn __getitem__(&self, key: &str) -> PyResult<f64> {
+            match self.key_to_index.get(key) {
+                Some(&idx) => Ok(self.get_weight_internal(idx)),
+                None => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+                    key.to_string(),
+                )),
+            }
+        }
+
+        /// Set the weight for a key.
+        ///
+        /// If the key already exists, updates its weight.
+        /// If the key is new, inserts it.
+        ///
+        /// Setting weight to 0 keeps the key present but excludes it from sampling.
+        ///
+        /// # Errors
+        ///
+        /// Returns `ValueError` if weight is negative, infinite, or NaN.
+        fn __setitem__(&mut self, key: &str, weight: f64) -> PyResult<()> {
+            Self::validate_weight(weight)?;
+            let log_weight = if weight == 0.0 {
+                f64::NEG_INFINITY
+            } else {
+                weight.log2()
+            };
+
+            if let Some(&idx) = self.key_to_index.get(key) {
+                // Update existing key's weight
+                self.tree.update(idx, log_weight);
+            } else {
+                // Insert new key
+                let new_idx = self.keys.len();
+                self.keys.push(key.to_string());
+                self.key_to_index.insert(key.to_string(), new_idx);
+
+                // Reuse deleted slot if available, otherwise insert new
+                if new_idx < self.tree.len() {
+                    // Reuse a deleted slot
+                    self.tree.update(new_idx, log_weight);
+                } else {
+                    // Insert a new element at the end
+                    self.tree.insert(log_weight);
+                }
+            }
+            Ok(())
+        }
+
+        /// Delete a key from the dictionary.
+        ///
+        /// Uses swap-remove: the last key is moved to the deleted position.
+        ///
+        /// # Errors
+        ///
+        /// Returns `KeyError` if the key is not present.
+        fn __delitem__(&mut self, key: &str) -> PyResult<()> {
+            let Some(&idx) = self.key_to_index.get(key) else {
+                return Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+                    key.to_string(),
+                ));
+            };
+
+            let last_idx = self.keys.len() - 1;
+
+            if idx == last_idx {
+                // Deleting the last element - simple pop
+                self.keys.pop();
+                self.key_to_index.remove(key);
+                self.tree.delete(idx);
+            } else {
+                // Swap-remove: move last key to deleted position
+                let last_key = self.keys.pop().unwrap();
+
+                // Update the swapped key's index in the hashmap
+                self.key_to_index.remove(key);
+                *self.key_to_index.get_mut(&last_key).unwrap() = idx;
+
+                // Put the last key in the deleted position
+                self.keys[idx] = last_key;
+
+                // Update tree: copy last weight to deleted position, then delete last
+                let last_weight_log = self
+                    .tree
+                    .element_log_weight(last_idx)
+                    .unwrap_or(f64::NEG_INFINITY);
+                self.tree.update(idx, last_weight_log);
+                self.tree.delete(last_idx);
+            }
+            Ok(())
+        }
+
+        /// Check if a key exists in the dictionary.
+        fn __contains__(&self, key: &str) -> bool {
+            self.key_to_index.contains_key(key)
+        }
+
+        /// Return an iterator over keys.
+        fn __iter__(&self) -> PyKeyIterator {
+            PyKeyIterator {
+                keys: self.keys.clone(),
+                index: 0,
+            }
+        }
+
+        /// Return a list of all keys.
+        fn keys(&self) -> Vec<String> {
+            self.keys.clone()
+        }
+
+        /// Return a list of all weights (values).
+        fn values(&self) -> Vec<f64> {
+            (0..self.keys.len())
+                .map(|i| self.get_weight_internal(i))
+                .collect()
+        }
+
+        /// Return a list of (key, weight) tuples.
+        fn items(&self) -> Vec<(String, f64)> {
+            self.keys
+                .iter()
+                .enumerate()
+                .map(|(i, k)| (k.clone(), self.get_weight_internal(i)))
+                .collect()
+        }
+
+        /// Get the weight for a key, or a default value if not present.
+        ///
+        /// # Arguments
+        ///
+        /// * `key` - The key to look up
+        /// * `default` - Value to return if key is not present (default: None)
+        #[pyo3(signature = (key, default=None))]
+        fn get(&self, key: &str, default: Option<f64>) -> Option<f64> {
+            self.key_to_index
+                .get(key)
+                .map(|&idx| self.get_weight_internal(idx))
+                .or(default)
+        }
+
+        /// Remove and return the weight for a key.
+        ///
+        /// # Errors
+        ///
+        /// Returns `KeyError` if the key is not present.
+        fn pop(&mut self, key: &str) -> PyResult<f64> {
+            let weight = self.__getitem__(key)?;
+            self.__delitem__(key)?;
+            Ok(weight)
+        }
+
+        /// Update the dictionary with key-weight pairs from another dict.
+        ///
+        /// # Errors
+        ///
+        /// Returns `ValueError` if any weight is invalid.
+        #[allow(clippy::needless_pass_by_value)]
+        fn update(&mut self, other: HashMap<String, f64>) -> PyResult<()> {
+            for (key, weight) in other {
+                self.__setitem__(&key, weight)?;
+            }
+            Ok(())
+        }
+
+        /// Remove all keys from the dictionary.
+        fn clear(&mut self) {
+            self.keys.clear();
+            self.key_to_index.clear();
+            self.tree = MutableTree::new(vec![]);
+        }
+
+        /// Set a key's weight if not already present.
+        ///
+        /// Returns the weight for the key (new or existing).
+        ///
+        /// # Errors
+        ///
+        /// Returns `ValueError` if the weight is invalid.
+        fn setdefault(&mut self, key: &str, default: f64) -> PyResult<f64> {
+            if let Some(&idx) = self.key_to_index.get(key) {
+                Ok(self.get_weight_internal(idx))
+            } else {
+                self.__setitem__(key, default)?;
+                Ok(default)
+            }
+        }
+
+        /// Sample a random key according to the weight distribution.
+        ///
+        /// Returns a key with probability proportional to its weight.
+        /// Keys with weight 0 are excluded from sampling.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if the dictionary is empty or all weights are 0.
+        pub fn sample(&mut self) -> PyResult<String> {
+            if self.keys.is_empty() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "cannot sample from empty dict",
+                ));
+            }
+            let tree = self.tree.as_tree();
+            match sample(&tree, &mut self.rng) {
+                Some(idx) => Ok(self.keys[idx].clone()),
+                None => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "cannot sample: all weights are 0",
+                )),
+            }
+        }
+
+        /// Reseed the internal random number generator.
+        pub fn seed(&mut self, seed: u64) {
+            self.rng = ChaCha8Rng::seed_from_u64(seed);
+        }
+
+        /// Return a string representation.
+        fn __repr__(&self) -> String {
+            let items: Vec<String> = self
+                .keys
+                .iter()
+                .enumerate()
+                .map(|(i, k)| format!("{:?}: {}", k, self.get_weight_internal(i)))
+                .collect();
+            format!("WeightedDict({{{}}})", items.join(", "))
+        }
+    }
+
+    /// Iterator over keys in a `WeightedDict`.
+    #[pyclass]
+    pub struct PyKeyIterator {
+        keys: Vec<String>,
+        index: usize,
+    }
+
+    #[pymethods]
+    impl PyKeyIterator {
+        #[allow(clippy::missing_const_for_fn)]
+        fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+            slf
+        }
+
+        fn __next__(&mut self) -> Option<String> {
+            if self.index >= self.keys.len() {
+                return None;
+            }
+            let key = self.keys[self.index].clone();
+            self.index += 1;
+            Some(key)
+        }
+    }
+
     /// Python module definition
     #[pymodule]
     #[allow(clippy::missing_errors_doc)]
@@ -670,6 +1011,8 @@ mod python_bindings {
         m.add_class::<DynamicSampler>()?;
         m.add_class::<PyChiSquaredResult>()?;
         m.add_class::<PyWeightIterator>()?;
+        m.add_class::<WeightedDict>()?;
+        m.add_class::<PyKeyIterator>()?;
         Ok(())
     }
 }
