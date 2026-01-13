@@ -23,71 +23,31 @@ mod python_bindings {
     /// Implements the data structure from "Dynamic Generation of Discrete Random Variates"
     /// by Matias, Vitter, and Ni (1993/2003).
     ///
-    /// Internally uses soft-delete with stable indices for O(log* N) updates,
-    /// but presents a list-like interface where deleted elements are hidden
-    /// and indices are contiguous.
+    /// Uses stable indices - indices never shift. Elements can only be added
+    /// at the end (append) or removed from the end (pop). Setting weight to 0
+    /// excludes an element from sampling but keeps its index valid.
     #[pyclass]
     pub struct DynamicSampler {
-        /// The mutable tree data structure (uses soft deletes internally)
+        /// The mutable tree data structure
         tree: MutableTree,
-        /// Maps Python index -> internal tree index (only active elements)
-        /// This is rebuilt when needed (after deletes change the mapping)
-        index_map: Vec<usize>,
-        /// Whether the index map needs rebuilding
-        index_map_dirty: bool,
+        /// Current logical length (number of elements added minus popped)
+        len: usize,
         /// Internal random number generator (`ChaCha8` for reproducibility)
         rng: ChaCha8Rng,
     }
 
     impl DynamicSampler {
-        /// Rebuild the index map from the tree's current state.
-        fn rebuild_index_map(&mut self) {
-            self.index_map.clear();
-            for i in 0..self.tree.len() {
-                if !self.tree.is_deleted(i) {
-                    self.index_map.push(i);
-                }
-            }
-            self.index_map_dirty = false;
-        }
-
-        /// Get the index map, rebuilding if necessary.
-        fn get_index_map(&mut self) -> &[usize] {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            &self.index_map
-        }
-
-        /// Map a Python index to an internal tree index.
-        #[allow(clippy::cast_sign_loss)] // Intentional: we check the sign before casting
-        fn map_index(&mut self, index: isize) -> PyResult<usize> {
-            let map = self.get_index_map();
-            let len = map.len();
-            let idx = if index < 0 {
-                let positive = (-index) as usize;
-                if positive > len {
-                    return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
-                        "index out of bounds",
-                    ));
-                }
-                len - positive
-            } else {
-                index as usize
-            };
-            if idx >= len {
-                return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
-                    "index out of bounds",
-                ));
-            }
-            Ok(map[idx])
-        }
-
         /// Get the weight at an internal tree index.
         fn get_weight_internal(&self, internal_idx: usize) -> f64 {
             self.tree
                 .element_log_weight(internal_idx)
-                .map_or(0.0, f64::exp2)
+                .map_or(0.0, |lw| {
+                    if lw == f64::NEG_INFINITY {
+                        0.0
+                    } else {
+                        lw.exp2()
+                    }
+                })
         }
 
         /// Validate a weight value for construction/append (must be positive).
@@ -118,6 +78,29 @@ mod python_bindings {
                 ));
             }
             Ok(())
+        }
+
+        /// Map a Python index (possibly negative) to a valid internal index.
+        #[allow(clippy::cast_sign_loss)]
+        fn map_index(&self, index: isize) -> PyResult<usize> {
+            let len = self.len;
+            let idx = if index < 0 {
+                let positive = (-index) as usize;
+                if positive > len {
+                    return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
+                        "index out of bounds",
+                    ));
+                }
+                len - positive
+            } else {
+                index as usize
+            };
+            if idx >= len {
+                return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
+                    "index out of bounds",
+                ));
+            }
+            Ok(idx)
         }
     }
 
@@ -167,24 +150,17 @@ mod python_bindings {
             for &w in &weights {
                 Self::validate_positive_weight(w)?;
             }
+            let len = weights.len();
             let log_weights: Vec<f64> = weights.iter().map(|w| w.log2()).collect();
             let tree = MutableTree::new(log_weights);
-            let index_map: Vec<usize> = (0..weights.len()).collect();
             let rng = seed.map_or_else(ChaCha8Rng::from_entropy, ChaCha8Rng::seed_from_u64);
-            Ok(Self {
-                tree,
-                index_map,
-                index_map_dirty: false,
-                rng,
-            })
+            Ok(Self { tree, len, rng })
         }
 
-        /// Return the number of elements (excluding deleted elements via `del`).
-        fn __len__(&mut self) -> usize {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            self.index_map.len()
+        /// Return the number of elements.
+        #[allow(clippy::missing_const_for_fn)] // pymethod cannot be const
+        fn __len__(&self) -> usize {
+            self.len
         }
 
         /// Get the weight at the given index or slice.
@@ -195,26 +171,19 @@ mod python_bindings {
         ///
         /// Returns error if index is out of bounds.
         #[allow(deprecated)]
-        fn __getitem__(&mut self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
             if let Ok(slice) = key.downcast::<PySlice>() {
                 // Handle slice
-                if self.index_map_dirty {
-                    self.rebuild_index_map();
-                }
-                let len = self.index_map.len();
-                let py_indices = slice_indices(slice, len)?;
+                let py_indices = slice_indices(slice, self.len)?;
                 let weights: Vec<f64> = py_indices
                     .iter()
-                    .map(|&i| {
-                        let internal_idx = self.index_map[i];
-                        self.get_weight_internal(internal_idx)
-                    })
+                    .map(|&i| self.get_weight_internal(i))
                     .collect();
                 Ok(weights.into_pyobject(py)?.into_any().unbind())
             } else if let Ok(index) = key.extract::<isize>() {
                 // Handle integer index
-                let internal_idx = self.map_index(index)?;
-                let weight = self.get_weight_internal(internal_idx);
+                let idx = self.map_index(index)?;
+                let weight = self.get_weight_internal(idx);
                 Ok(weight.into_pyobject(py)?.into_any().unbind())
             } else {
                 Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
@@ -226,7 +195,7 @@ mod python_bindings {
         /// Set the weight at the given index or slice.
         ///
         /// Setting weight to 0 excludes the element from sampling but keeps it
-        /// in the list (indices don't shift). Use `del` to actually remove.
+        /// in the list (indices stay stable).
         ///
         /// For slices, value must be an iterable of the same length as the slice.
         ///
@@ -241,11 +210,7 @@ mod python_bindings {
         ) -> PyResult<()> {
             if let Ok(slice) = key.downcast::<PySlice>() {
                 // Handle slice
-                if self.index_map_dirty {
-                    self.rebuild_index_map();
-                }
-                let len = self.index_map.len();
-                let py_indices = slice_indices(slice, len)?;
+                let py_indices = slice_indices(slice, self.len)?;
                 let weights: Vec<f64> = value.extract()?;
                 if weights.len() != py_indices.len() {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
@@ -257,27 +222,26 @@ mod python_bindings {
                 for &w in &weights {
                     Self::validate_nonnegative_weight(w)?;
                 }
-                for (&py_idx, &weight) in py_indices.iter().zip(weights.iter()) {
-                    let internal_idx = self.index_map[py_idx];
+                for (&idx, &weight) in py_indices.iter().zip(weights.iter()) {
                     let log_weight = if weight == 0.0 {
                         f64::NEG_INFINITY
                     } else {
                         weight.log2()
                     };
-                    self.tree.update(internal_idx, log_weight);
+                    self.tree.update(idx, log_weight);
                 }
                 Ok(())
             } else if let Ok(index) = key.extract::<isize>() {
                 // Handle integer index
                 let weight: f64 = value.extract()?;
                 Self::validate_nonnegative_weight(weight)?;
-                let internal_idx = self.map_index(index)?;
+                let idx = self.map_index(index)?;
                 let log_weight = if weight == 0.0 {
-                    f64::NEG_INFINITY // Tree uses NEG_INFINITY for zero weight
+                    f64::NEG_INFINITY
                 } else {
                     weight.log2()
                 };
-                self.tree.update(internal_idx, log_weight);
+                self.tree.update(idx, log_weight);
                 Ok(())
             } else {
                 Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
@@ -286,117 +250,25 @@ mod python_bindings {
             }
         }
 
-        /// Delete the element at the given index or slice.
-        ///
-        /// Removes the element(s) and shifts subsequent indices down, like a Python list.
-        /// This is different from setting weight to 0 (which keeps the element).
-        ///
-        /// Optimized for deleting from the end: if we're deleting a contiguous
-        /// slice at the end, we truncate `index_map` directly instead of rebuilding.
-        ///
-        /// # Errors
-        ///
-        /// Returns error if index is out of bounds.
-        #[allow(deprecated)]
-        fn __delitem__(&mut self, key: &Bound<'_, PyAny>) -> PyResult<()> {
-            if let Ok(slice) = key.downcast::<PySlice>() {
-                // Handle slice - delete in reverse order to avoid index shifting issues
-                if self.index_map_dirty {
-                    self.rebuild_index_map();
-                }
-                let len = self.index_map.len();
-                let mut py_indices = slice_indices(slice, len)?;
-
-                if py_indices.is_empty() {
-                    return Ok(());
-                }
-
-                // Sort in reverse order so we delete from the end first
-                py_indices.sort_unstable_by(|a, b| b.cmp(a));
-
-                // Check if we're deleting a contiguous slice from the end
-                // This is O(1) and avoids the O(n) rebuild
-                let is_contiguous_from_end = py_indices
-                    .iter()
-                    .enumerate()
-                    .all(|(i, &idx)| idx == len - 1 - i);
-
-                // Delete from tree
-                for &py_idx in &py_indices {
-                    let internal_idx = self.index_map[py_idx];
-                    self.tree.delete(internal_idx);
-                }
-
-                if is_contiguous_from_end {
-                    // Optimization: just truncate the index_map
-                    self.index_map.truncate(len - py_indices.len());
-                } else {
-                    // General case: need full rebuild
-                    self.index_map_dirty = true;
-                }
-                Ok(())
-            } else if let Ok(index) = key.extract::<isize>() {
-                // Handle integer index
-                // map_index already rebuilds index_map if needed
-                let internal_idx = self.map_index(index)?;
-                let len = self.index_map.len();
-                self.tree.delete(internal_idx);
-
-                // Check if we're deleting the last element (optimization)
-                #[allow(clippy::cast_sign_loss)]
-                let py_idx = if index < 0 {
-                    len - ((-index) as usize)
-                } else {
-                    index as usize
-                };
-
-                if py_idx == len - 1 {
-                    // Deleting the last element - just pop from index_map
-                    self.index_map.pop();
-                } else {
-                    // General case: need full rebuild
-                    self.index_map_dirty = true;
-                }
-                Ok(())
-            } else {
-                Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "indices must be integers or slices",
-                ))
-            }
+        /// Check if a weight value exists among elements.
+        fn __contains__(&self, weight: f64) -> bool {
+            (0..self.len).any(|i| (self.get_weight_internal(i) - weight).abs() < 1e-10)
         }
 
-        /// Check if a weight value exists among active elements.
-        ///
-        /// Equivalent to `weight in sampler`. Checks only non-deleted elements.
-        fn __contains__(&mut self, weight: f64) -> bool {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            let map = &self.index_map;
-            map.iter().any(|&i| {
-                let w = self.get_weight_internal(i);
-                (w - weight).abs() < 1e-10
-            })
-        }
-
-        /// Return an iterator over all weights (excluding deleted elements).
-        fn __iter__(&mut self) -> PyWeightIterator {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            let weights: Vec<f64> = self
-                .index_map
-                .iter()
-                .map(|&i| self.get_weight_internal(i))
-                .collect();
+        /// Return an iterator over all weights.
+        fn __iter__(&self) -> PyWeightIterator {
+            let weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
             PyWeightIterator { weights, index: 0 }
         }
 
         // =====================================================================
-        // Python list-like operations
+        // Python list-like operations (stable indices only)
         // =====================================================================
 
         /// Append a weight to the end.
+        ///
+        /// If we previously popped elements, reuses the soft-deleted slot.
+        /// Otherwise, inserts a new element.
         ///
         /// # Errors
         ///
@@ -404,13 +276,15 @@ mod python_bindings {
         pub fn append(&mut self, weight: f64) -> PyResult<()> {
             Self::validate_positive_weight(weight)?;
             let log_weight = weight.log2();
-            let new_idx = self.tree.insert(log_weight);
-            // Add to index map (new element at end)
-            if self.index_map_dirty {
-                self.rebuild_index_map();
+
+            if self.len < self.tree.len() {
+                // Reuse a popped slot - just update the weight
+                self.tree.update(self.len, log_weight);
             } else {
-                self.index_map.push(new_idx);
+                // Insert a new element
+                self.tree.insert(log_weight);
             }
+            self.len += 1;
             Ok(())
         }
 
@@ -425,14 +299,7 @@ mod python_bindings {
                 Self::validate_positive_weight(w)?;
             }
             for w in weights {
-                let log_weight = w.log2();
-                let new_idx = self.tree.insert(log_weight);
-                if !self.index_map_dirty {
-                    self.index_map.push(new_idx);
-                }
-            }
-            if self.index_map_dirty {
-                self.rebuild_index_map();
+                self.append(w)?;
             }
             Ok(())
         }
@@ -443,30 +310,16 @@ mod python_bindings {
         ///
         /// Returns error if the sampler is empty.
         pub fn pop(&mut self) -> PyResult<f64> {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            // SAFETY: We return early if empty, so pop() is guaranteed to succeed
-            let Some(internal_idx) = self.index_map.pop() else {
+            if self.len == 0 {
                 return Err(PyErr::new::<pyo3::exceptions::PyIndexError, _>(
                     "pop from empty list",
                 ));
-            };
-            let weight = self.get_weight_internal(internal_idx);
-            self.tree.delete(internal_idx);
-            Ok(weight)
-        }
-
-        /// Remove all elements.
-        pub fn clear(&mut self) {
-            // Delete all elements in the tree
-            for i in 0..self.tree.len() {
-                if !self.tree.is_deleted(i) {
-                    self.tree.delete(i);
-                }
             }
-            self.index_map.clear();
-            self.index_map_dirty = false;
+            let last_idx = self.len - 1;
+            let weight = self.get_weight_internal(last_idx);
+            self.tree.delete(last_idx);
+            self.len -= 1;
+            Ok(weight)
         }
 
         /// Find the first index of an element with the given weight.
@@ -474,14 +327,12 @@ mod python_bindings {
         /// # Errors
         ///
         /// Returns error if no element with this weight exists.
-        pub fn index(&mut self, weight: f64) -> PyResult<usize> {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            for (py_idx, &internal_idx) in self.index_map.iter().enumerate() {
-                let w = self.get_weight_internal(internal_idx);
+        #[allow(clippy::missing_errors_doc)]
+        pub fn index(&self, weight: f64) -> PyResult<usize> {
+            for i in 0..self.len {
+                let w = self.get_weight_internal(i);
                 if (w - weight).abs() < 1e-10 {
-                    return Ok(py_idx);
+                    return Ok(i);
                 }
             }
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
@@ -490,45 +341,24 @@ mod python_bindings {
         }
 
         /// Count the number of elements with the given weight.
-        pub fn count(&mut self, weight: f64) -> usize {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            self.index_map
-                .iter()
-                .filter(|&&i| (self.get_weight_internal(i) - weight).abs() < 1e-10)
+        #[must_use]
+        pub fn count(&self, weight: f64) -> usize {
+            (0..self.len)
+                .filter(|&i| (self.get_weight_internal(i) - weight).abs() < 1e-10)
                 .count()
         }
 
-        /// Remove the first occurrence of a weight.
+        /// Remove all elements.
         ///
-        /// # Errors
-        ///
-        /// Returns error if no element with this weight exists.
-        pub fn remove(&mut self, weight: f64) -> PyResult<()> {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            // Find the python index of the weight
-            let mut found_py_idx = None;
-            for (py_idx, &internal_idx) in self.index_map.iter().enumerate() {
-                let w = self.get_weight_internal(internal_idx);
-                if (w - weight).abs() < 1e-10 {
-                    found_py_idx = Some((py_idx, internal_idx));
-                    break;
-                }
-            }
-            let (_, internal_idx) = found_py_idx.ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("{weight} is not in list"))
-            })?;
-            self.tree.delete(internal_idx);
-            self.index_map_dirty = true;
-            Ok(())
+        /// After calling `clear()`, the sampler will be empty (len = 0).
+        pub fn clear(&mut self) {
+            self.tree = MutableTree::new(vec![]);
+            self.len = 0;
         }
 
         /// Sample a random index according to the weight distribution.
         ///
-        /// Returns a Python index j with probability `w_j / sum(w_i)`.
+        /// Returns an index j with probability `w_j / sum(w_i)`.
         /// Uses O(log* N) expected time.
         ///
         /// Elements with weight 0 are excluded from sampling.
@@ -540,29 +370,17 @@ mod python_bindings {
         ///
         /// Returns error if the sampler is empty or all elements have weight 0.
         pub fn sample(&mut self) -> PyResult<usize> {
-            if self.index_map_dirty {
-                self.rebuild_index_map();
-            }
-            if self.index_map.is_empty() {
+            if self.len == 0 {
                 return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "cannot sample from empty list",
                 ));
             }
             let tree = self.tree.as_tree();
-            let internal_idx = sample(&tree, &mut self.rng).ok_or_else(|| {
+            sample(&tree, &mut self.rng).ok_or_else(|| {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(
                     "cannot sample: all elements have weight 0",
                 )
-            })?;
-            // Map internal index back to Python index
-            self.index_map
-                .iter()
-                .position(|&i| i == internal_idx)
-                .ok_or_else(|| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        "sampled a deleted element unexpectedly",
-                    )
-                })
+            })
         }
 
         /// Reseed the internal random number generator.
@@ -633,8 +451,9 @@ mod python_bindings {
             use rand::prelude::*;
             use rand_chacha::ChaCha8Rng;
 
-            // Get log weights from tree, filtering out deleted elements
-            let n = self.tree.len();
+            let n = self.len;
+
+            // Get log weights from tree
             let log_weights: Vec<f64> = (0..n)
                 .map(|i| {
                     self.tree
@@ -707,10 +526,8 @@ mod python_bindings {
 
             // Calculate expected counts and identify excluded indices
             // Chi-squared test requires expected counts >= ~5 for validity
-            // We exclude low-expected elements from chi-squared but still allow samples.
-            // Only truly zero-weight elements (deleted) should never be sampled.
-            const MIN_EXPECTED_CHI2: f64 = 5.0; // Standard chi-squared assumption
-            #[allow(clippy::cast_precision_loss)] // Acceptable for statistical calculations
+            const MIN_EXPECTED_CHI2: f64 = 5.0;
+            #[allow(clippy::cast_precision_loss)]
             let num_samples_f64 = num_samples as f64;
 
             let mut included_observed = Vec::new();
@@ -721,14 +538,11 @@ mod python_bindings {
             for (i, &w) in weights.iter().enumerate() {
                 let expected = (w / total_weight) * num_samples_f64;
                 if expected >= MIN_EXPECTED_CHI2 {
-                    // Include in chi-squared test
                     included_observed.push(observed[i]);
                     included_weights.push(w);
                 } else if w > 0.0 {
-                    // Low but non-zero weight - exclude from chi-squared, sampling is valid
                     excluded_count += 1;
                 } else {
-                    // Zero weight (deleted element) - should never be sampled
                     excluded_count += 1;
                     if observed[i] > 0 {
                         unexpected_samples += observed[i];

@@ -1,4 +1,9 @@
-"""Tests for Python list-like operations on DynamicSampler."""
+"""Tests for Python list-like operations on DynamicSampler.
+
+The DynamicSampler uses stable indices - elements can only be added at the end
+(append) or removed from the end (pop). There is no __delitem__ or remove().
+Setting weight to 0 excludes an element from sampling but keeps its index valid.
+"""
 
 import math
 from typing import Any
@@ -6,7 +11,7 @@ from typing import Any
 import pytest
 
 # =============================================================================
-# Item Access Tests (__getitem__, __setitem__, __delitem__) - Single Index
+# Item Access Tests (__getitem__, __setitem__) - Single Index
 # =============================================================================
 
 
@@ -87,34 +92,8 @@ def test_setitem_invalid_weight() -> None:
         sampler[0] = math.nan
 
 
-def test_delitem_positive_index() -> None:
-    """Test deleting with positive index removes element."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[1]
-    # Length decreases
-    assert len(sampler) == 2
-    # Elements shift
-    assert abs(sampler[0] - 1.0) < 1e-10
-    assert abs(sampler[1] - 3.0) < 1e-10  # Was at index 2
-
-
-def test_delitem_negative_index() -> None:
-    """Test deleting with negative index removes element."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[-1]
-    # Length decreases
-    assert len(sampler) == 2
-    # Last element gone
-    assert abs(sampler[0] - 1.0) < 1e-10
-    assert abs(sampler[1] - 2.0) < 1e-10
-
-
 # =============================================================================
-# Slice Tests (__getitem__, __setitem__, __delitem__ with slices)
+# Slice Tests (__getitem__, __setitem__ with slices)
 # =============================================================================
 
 
@@ -184,28 +163,6 @@ def test_setitem_slice_wrong_length() -> None:
         sampler[1:4] = [10.0, 20.0]  # Wrong length
 
 
-def test_delitem_slice_basic() -> None:
-    """Test deleting elements with a slice."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
-    del sampler[1:4]
-    assert len(sampler) == 2
-    assert abs(sampler[0] - 1.0) < 1e-10
-    assert abs(sampler[1] - 5.0) < 1e-10
-
-
-def test_delitem_slice_step() -> None:
-    """Test deleting elements with slice step."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
-    del sampler[::2]  # Delete elements at indices 0, 2, 4
-    assert len(sampler) == 2
-    assert abs(sampler[0] - 2.0) < 1e-10
-    assert abs(sampler[1] - 4.0) < 1e-10
-
-
 def test_getitem_slice_negative_step() -> None:
     """Test getting weights with negative slice step (reverse)."""
     from dynamic_random_sampler import DynamicSampler
@@ -230,17 +187,6 @@ def test_setitem_slice_negative_step() -> None:
     assert abs(sampler[4] - 50.0) < 1e-10
 
 
-def test_delitem_slice_negative_step() -> None:
-    """Test deleting elements with negative slice step."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
-    del sampler[4::-2]  # Delete indices 4, 2, 0
-    assert len(sampler) == 2
-    assert abs(sampler[0] - 2.0) < 1e-10
-    assert abs(sampler[1] - 4.0) < 1e-10
-
-
 def test_getitem_full_slice() -> None:
     """Test getting all elements with full slice."""
     from dynamic_random_sampler import DynamicSampler
@@ -249,18 +195,6 @@ def test_getitem_full_slice() -> None:
     result = sampler[:]
     assert len(result) == 3
     assert result == list(sampler)
-
-
-def test_delitem_from_end() -> None:
-    """Test deleting from the end (should be efficient)."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
-    del sampler[-2:]  # Delete last 2 elements
-    assert len(sampler) == 3
-    assert abs(sampler[0] - 1.0) < 1e-10
-    assert abs(sampler[1] - 2.0) < 1e-10
-    assert abs(sampler[2] - 3.0) < 1e-10
 
 
 # =============================================================================
@@ -286,12 +220,15 @@ def test_contains_nonexistent_weight() -> None:
     assert 5.0 not in sampler
 
 
-def test_contains_deleted_weight() -> None:
-    """Test checking for deleted weight (element removed)."""
+def test_contains_zero_weight() -> None:
+    """Test checking for zero weight (element still exists)."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[0]
+    sampler[0] = 0.0
+    # Zero weight element still exists
+    assert 0.0 in sampler
+    # Original weight is gone
     assert 1.0 not in sampler
 
 
@@ -310,19 +247,6 @@ def test_iter_returns_all_weights() -> None:
     assert abs(weights[0] - 1.0) < 1e-10
     assert abs(weights[1] - 2.0) < 1e-10
     assert abs(weights[2] - 3.0) < 1e-10
-
-
-def test_iter_excludes_deleted_elements() -> None:
-    """Test iteration excludes deleted elements."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[1]
-    weights = list(sampler)
-    # Only 2 elements remain after deletion
-    assert len(weights) == 2
-    assert abs(weights[0] - 1.0) < 1e-10
-    assert abs(weights[1] - 3.0) < 1e-10
 
 
 def test_iter_includes_zero_weight_elements() -> None:
@@ -411,18 +335,6 @@ def test_pop_returns_last_weight() -> None:
     assert len(sampler) == 2
 
 
-def test_pop_after_delete() -> None:
-    """Test pop works after delete."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[2]  # Delete last
-    # Now only [1.0, 2.0] remain
-    weight = sampler.pop()  # Should pop 2.0
-    assert abs(weight - 2.0) < 1e-10
-    assert len(sampler) == 1
-
-
 def test_pop_empty_raises() -> None:
     """Test pop on empty sampler raises error."""
     from dynamic_random_sampler import DynamicSampler
@@ -440,6 +352,17 @@ def test_clear_removes_all() -> None:
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     sampler.clear()
     assert len(sampler) == 0
+
+
+def test_clear_then_append() -> None:
+    """Test that append works after clear."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    sampler.clear()
+    sampler.append(5.0)
+    assert len(sampler) == 1
+    assert abs(sampler[0] - 5.0) < 1e-10
 
 
 # =============================================================================
@@ -464,18 +387,6 @@ def test_index_not_found() -> None:
         sampler.index(5.0)
 
 
-def test_index_after_delete() -> None:
-    """Test index works after delete."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[0]  # Remove 1.0
-    # Now [2.0, 3.0]
-    with pytest.raises(ValueError):
-        sampler.index(1.0)  # 1.0 no longer exists
-    assert sampler.index(2.0) == 0  # 2.0 is now at index 0
-
-
 def test_count_existing() -> None:
     """Test count counts occurrences."""
     from dynamic_random_sampler import DynamicSampler
@@ -492,51 +403,13 @@ def test_count_nonexistent() -> None:
     assert sampler.count(5.0) == 0
 
 
-def test_count_after_delete() -> None:
-    """Test count works after delete."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 2.0, 3.0])
-    del sampler[1]  # Remove first 2.0
-    # Now [1.0, 2.0, 3.0]
-    assert sampler.count(2.0) == 1
-
-
 # =============================================================================
-# Remove Tests
+# Pop Efficiency Tests
 # =============================================================================
 
 
-def test_remove_existing() -> None:
-    """Test remove removes first occurrence."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 2.0, 3.0])
-    sampler.remove(2.0)
-    assert len(sampler) == 3
-    assert sampler.count(2.0) == 1
-
-
-def test_remove_nonexistent() -> None:
-    """Test remove raises for nonexistent weight."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    with pytest.raises(ValueError):
-        sampler.remove(5.0)
-
-
-# =============================================================================
-# End-deletion Optimization Tests
-# =============================================================================
-
-
-def test_multiple_pops_efficient() -> None:
-    """Test that multiple pops work correctly.
-
-    This tests the optimization where popping from end doesn't trigger
-    a full index_map rebuild.
-    """
+def test_multiple_pops_work_correctly() -> None:
+    """Test that multiple pops work correctly."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
@@ -554,69 +427,26 @@ def test_multiple_pops_efficient() -> None:
         assert abs(sampler[i] - float(i + 1)) < 1e-10
 
 
-def test_del_from_end_efficient() -> None:
-    """Test that deleting from end doesn't trigger full rebuild.
-
-    Deleting del sampler[-1] should just truncate the index_map.
-    """
+def test_pop_and_append_cycle() -> None:
+    """Test that pop and append can be interleaved."""
     from dynamic_random_sampler import DynamicSampler
 
-    sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
-    assert len(sampler) == 100
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
 
-    # Delete last 50 elements one by one
-    for _ in range(50):
-        del sampler[-1]
-
-    assert len(sampler) == 50
-    # Verify remaining elements are correct
-    for i in range(50):
-        assert abs(sampler[i] - float(i + 1)) < 1e-10
-
-
-def test_del_slice_from_end_efficient() -> None:
-    """Test that deleting a slice from end works efficiently."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
-    assert len(sampler) == 100
-
-    # Delete last 50 elements as a slice
-    del sampler[50:]
-
-    assert len(sampler) == 50
-    # Verify remaining elements are correct
-    for i in range(50):
-        assert abs(sampler[i] - float(i + 1)) < 1e-10
-
-
-def test_mixed_operations_after_end_deletion() -> None:
-    """Test that other operations work correctly after end deletions."""
-    from dynamic_random_sampler import DynamicSampler
-
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
-
-    # Delete from end
-    del sampler[-1]  # Removes 5.0
-    assert len(sampler) == 4
-    assert list(sampler) == [1.0, 2.0, 3.0, 4.0]
-
-    # Append new element
-    sampler.append(6.0)
-    assert len(sampler) == 5
-    assert abs(sampler[4] - 6.0) < 1e-10
-
-    # Pop
+    # Pop last
     weight = sampler.pop()
-    assert abs(weight - 6.0) < 1e-10
-    assert len(sampler) == 4
+    assert abs(weight - 3.0) < 1e-10
+    assert len(sampler) == 2
 
-    # Delete from middle (triggers rebuild)
-    del sampler[1]  # Removes 2.0
+    # Append new
+    sampler.append(4.0)
     assert len(sampler) == 3
-    assert list(sampler) == [1.0, 3.0, 4.0]
+    assert abs(sampler[2] - 4.0) < 1e-10
 
-    # Operations after middle deletion still work
-    sampler.append(7.0)
-    assert len(sampler) == 4
-    assert list(sampler) == [1.0, 3.0, 4.0, 7.0]
+    # Pop again
+    weight = sampler.pop()
+    assert abs(weight - 4.0) < 1e-10
+    assert len(sampler) == 2
+
+    # Verify remaining
+    assert list(sampler) == [1.0, 2.0]

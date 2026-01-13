@@ -126,16 +126,16 @@ def test_sampling_after_append() -> None:
     assert count_3 > 90, f"Expected >90, got {count_3}"
 
 
-def test_sampling_after_delete() -> None:
-    """Test that sampling works correctly after delete with seed."""
+def test_sampling_after_pop() -> None:
+    """Test that sampling works correctly after pop with seed."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 1.0, 1.0, 1.0], seed=42)
 
-    # Delete three elements (indices shift after each delete)
-    del sampler[0]  # Now [1.0, 1.0, 1.0] at indices 0,1,2
-    del sampler[0]  # Now [1.0, 1.0] at indices 0,1
-    del sampler[0]  # Now [1.0] at index 0
+    # Pop three elements from the end
+    sampler.pop()  # Now [1.0, 1.0, 1.0] at indices 0,1,2
+    sampler.pop()  # Now [1.0, 1.0] at indices 0,1
+    sampler.pop()  # Now [1.0] at index 0
 
     # Now only one element remains at index 0
     assert len(sampler) == 1

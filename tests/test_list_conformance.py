@@ -1,8 +1,7 @@
 """Hypothesis stateful test for list API conformance.
 
 This test verifies that DynamicSampler behaves like a list of weights,
-with the key difference that deletion is "soft" (sets weight to 0 rather
-than shifting indices).
+with stable indices (no index-shifting operations).
 """
 
 from typing import Any
@@ -21,7 +20,7 @@ class WeightListModel:
     """Reference model: a plain Python list of weights.
 
     This is just a list with validation that weights are positive.
-    All operations behave exactly like a Python list.
+    Uses stable indices like DynamicSampler - only append/pop are allowed.
     """
 
     def __init__(self, weights: list[float]) -> None:
@@ -35,9 +34,6 @@ class WeightListModel:
 
     def __setitem__(self, index: int, weight: float) -> None:
         self.weights[index] = weight
-
-    def __delitem__(self, index: int) -> None:
-        del self.weights[index]
 
     def __contains__(self, weight: float) -> bool:
         return any(abs(w - weight) < 1e-10 for w in self.weights)
@@ -168,30 +164,6 @@ class SamplerListConformance(RuleBasedStateMachine):
         else:
             assert sampler_error is None, \
                 "Sampler raised IndexError but model succeeded"
-
-    @rule(index=st.integers(min_value=-20, max_value=20))
-    def del_item(self, index: int) -> None:
-        if self.model is None:
-            return
-
-        model_error = None
-        try:
-            del self.model[index]
-        except IndexError as e:
-            model_error = e
-
-        sampler_error = None
-        try:
-            del self.sampler[index]
-        except IndexError as e:
-            sampler_error = e
-
-        if model_error is not None:
-            assert sampler_error is not None, \
-                "Model raised IndexError but sampler succeeded on del"
-        else:
-            assert sampler_error is None, \
-                "Sampler raised IndexError but model succeeded on del"
 
     @rule(weight=st.floats(min_value=0.1, max_value=100.0))
     def append_weight(self, weight: float) -> None:
