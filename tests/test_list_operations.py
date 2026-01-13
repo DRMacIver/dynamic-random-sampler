@@ -59,14 +59,19 @@ def test_setitem_negative_index() -> None:
     assert abs(sampler[-1] - 5.0) < 1e-10
 
 
-def test_setitem_to_zero_deletes() -> None:
-    """Test setting weight to zero deletes the element."""
+def test_setitem_to_zero_excludes_from_sampling() -> None:
+    """Test setting weight to zero excludes from sampling but keeps element."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     sampler[1] = 0.0
+    # Element still exists at index 1
     assert sampler[1] == 0.0
-    assert sampler.is_deleted(1)
+    # Length unchanged
+    assert len(sampler) == 3
+    # Other elements unchanged
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[2] - 3.0) < 1e-10
 
 
 def test_setitem_invalid_weight() -> None:
@@ -83,22 +88,29 @@ def test_setitem_invalid_weight() -> None:
 
 
 def test_delitem_positive_index() -> None:
-    """Test deleting with positive index."""
+    """Test deleting with positive index removes element."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     del sampler[1]
-    assert sampler.is_deleted(1)
-    assert sampler[1] == 0.0
+    # Length decreases
+    assert len(sampler) == 2
+    # Elements shift
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 3.0) < 1e-10  # Was at index 2
 
 
 def test_delitem_negative_index() -> None:
-    """Test deleting with negative index."""
+    """Test deleting with negative index removes element."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     del sampler[-1]
-    assert sampler.is_deleted(2)
+    # Length decreases
+    assert len(sampler) == 2
+    # Last element gone
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 2.0) < 1e-10
 
 
 # =============================================================================
@@ -125,7 +137,7 @@ def test_contains_nonexistent_weight() -> None:
 
 
 def test_contains_deleted_weight() -> None:
-    """Test checking for deleted weight."""
+    """Test checking for deleted weight (element removed)."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
@@ -150,12 +162,25 @@ def test_iter_returns_all_weights() -> None:
     assert abs(weights[2] - 3.0) < 1e-10
 
 
-def test_iter_includes_deleted_as_zero() -> None:
-    """Test iteration includes deleted elements as 0.0."""
+def test_iter_excludes_deleted_elements() -> None:
+    """Test iteration excludes deleted elements."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     del sampler[1]
+    weights = list(sampler)
+    # Only 2 elements remain after deletion
+    assert len(weights) == 2
+    assert abs(weights[0] - 1.0) < 1e-10
+    assert abs(weights[1] - 3.0) < 1e-10
+
+
+def test_iter_includes_zero_weight_elements() -> None:
+    """Test iteration includes elements with weight 0."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    sampler[1] = 0.0  # Set to zero but don't delete
     weights = list(sampler)
     assert len(weights) == 3
     assert abs(weights[0] - 1.0) < 1e-10
@@ -223,24 +248,25 @@ def test_extend_empty_list() -> None:
 
 
 def test_pop_returns_last_weight() -> None:
-    """Test pop returns and deletes last weight."""
+    """Test pop returns and removes last weight."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     weight = sampler.pop()
     assert abs(weight - 3.0) < 1e-10
-    assert sampler.is_deleted(2)
+    assert len(sampler) == 2
 
 
-def test_pop_skips_deleted() -> None:
-    """Test pop skips deleted elements."""
+def test_pop_after_delete() -> None:
+    """Test pop works after delete."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     del sampler[2]  # Delete last
-    weight = sampler.pop()  # Should pop index 1
+    # Now only [1.0, 2.0] remain
+    weight = sampler.pop()  # Should pop 2.0
     assert abs(weight - 2.0) < 1e-10
-    assert sampler.is_deleted(1)
+    assert len(sampler) == 1
 
 
 def test_pop_empty_raises() -> None:
@@ -253,15 +279,13 @@ def test_pop_empty_raises() -> None:
         sampler.pop()
 
 
-def test_clear_deletes_all() -> None:
-    """Test clear deletes all elements."""
+def test_clear_removes_all() -> None:
+    """Test clear removes all elements."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     sampler.clear()
-    assert sampler.active_count() == 0
-    for i in range(3):
-        assert sampler.is_deleted(i)
+    assert len(sampler) == 0
 
 
 # =============================================================================
@@ -286,14 +310,16 @@ def test_index_not_found() -> None:
         sampler.index(5.0)
 
 
-def test_index_ignores_deleted() -> None:
-    """Test index ignores deleted elements."""
+def test_index_after_delete() -> None:
+    """Test index works after delete."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
-    del sampler[0]
+    del sampler[0]  # Remove 1.0
+    # Now [2.0, 3.0]
     with pytest.raises(ValueError):
-        sampler.index(1.0)
+        sampler.index(1.0)  # 1.0 no longer exists
+    assert sampler.index(2.0) == 0  # 2.0 is now at index 0
 
 
 def test_count_existing() -> None:
@@ -312,10 +338,35 @@ def test_count_nonexistent() -> None:
     assert sampler.count(5.0) == 0
 
 
-def test_count_ignores_deleted() -> None:
-    """Test count ignores deleted elements."""
+def test_count_after_delete() -> None:
+    """Test count works after delete."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 2.0, 3.0])
-    del sampler[1]
+    del sampler[1]  # Remove first 2.0
+    # Now [1.0, 2.0, 3.0]
     assert sampler.count(2.0) == 1
+
+
+# =============================================================================
+# Remove Tests
+# =============================================================================
+
+
+def test_remove_existing() -> None:
+    """Test remove removes first occurrence."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 2.0, 3.0])
+    sampler.remove(2.0)
+    assert len(sampler) == 3
+    assert sampler.count(2.0) == 1
+
+
+def test_remove_nonexistent() -> None:
+    """Test remove raises for nonexistent weight."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    with pytest.raises(ValueError):
+        sampler.remove(5.0)

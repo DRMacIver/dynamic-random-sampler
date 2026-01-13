@@ -21,13 +21,13 @@ def test_basic_construction() -> None:
 
 
 def test_weight_retrieval() -> None:
-    """Verify weights can be retrieved."""
+    """Verify weights can be retrieved via indexing."""
     from dynamic_random_sampler import DynamicSampler
 
     sampler: Any = DynamicSampler([1.0, 2.0, 4.0])
-    assert abs(sampler.weight(0) - 1.0) < 1e-10
-    assert abs(sampler.weight(1) - 2.0) < 1e-10
-    assert abs(sampler.weight(2) - 4.0) < 1e-10
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 2.0) < 1e-10
+    assert abs(sampler[2] - 4.0) < 1e-10
 
 
 def test_sample_returns_valid_index() -> None:

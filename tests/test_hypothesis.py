@@ -39,7 +39,7 @@ def test_weights_are_preserved(weights: list[float]) -> None:
 
     sampler: Any = DynamicSampler(weights)
     for i, expected in enumerate(weights):
-        actual = sampler.weight(i)
+        actual = sampler[i]
         # Allow for floating point imprecision from log2/exp2 conversion
         assert abs(actual - expected) / max(expected, 1e-10) < 1e-10
 
@@ -70,8 +70,8 @@ def test_update_changes_weight(
     assume(index < len(weights))
 
     sampler: Any = DynamicSampler(weights)
-    sampler.update(index, new_weight)
-    actual = sampler.weight(index)
+    sampler[index] = new_weight
+    actual = sampler[index]
     assert abs(actual - new_weight) / max(new_weight, 1e-10) < 1e-10
 
 
@@ -89,11 +89,11 @@ def test_update_preserves_other_weights(
     assume(index < len(weights))
 
     sampler: Any = DynamicSampler(weights)
-    sampler.update(index, new_weight)
+    sampler[index] = new_weight
 
     for i, expected in enumerate(weights):
         if i != index:
-            actual = sampler.weight(i)
+            actual = sampler[i]
             assert abs(actual - expected) / max(expected, 1e-10) < 1e-10
 
 
@@ -149,7 +149,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
     def add_many_weights(self, n_to_add: int, weight: float) -> None:
         """Add multiple weights with the same value."""
         for _ in range(n_to_add):
-            self.sampler.insert(weight)
+            self.sampler.append(weight)
         self.weights.extend([weight] * n_to_add)
         note(f"Added {n_to_add} weights with value {weight:.2e}")
 
@@ -158,7 +158,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
     def update_weight(self, index: int, new_weight: float) -> None:
         """Update a weight to a new positive value."""
         old_weight = self.weights[index]
-        self.sampler.update(index, new_weight)
+        self.sampler[index] = new_weight
         self.weights[index] = new_weight
         note(f"Updated index {index}: {old_weight:.2f} -> {new_weight:.2f}")
 
@@ -188,7 +188,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         """Scale a weight by a factor."""
         index = index % len(self.weights)
         new_weight = max(0.1, self.weights[index] * factor)
-        self.sampler.update(index, new_weight)
+        self.sampler[index] = new_weight
         self.weights[index] = new_weight
         note(f"Scaled index {index} by {factor:.2f}")
 
@@ -201,7 +201,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         dominant_idx = random.randrange(len(self.weights))
         total_others = sum(w for i, w in enumerate(self.weights) if i != dominant_idx)
         new_weight = total_others * 100  # 100x all others combined
-        self.sampler.update(dominant_idx, new_weight)
+        self.sampler[dominant_idx] = new_weight
         self.weights[dominant_idx] = new_weight
         note(f"Made index {dominant_idx} dominant with weight {new_weight:.2f}")
 
@@ -211,7 +211,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         """Set all weights to be equal."""
         equal_weight = 1.0
         for i in range(len(self.weights)):
-            self.sampler.update(i, equal_weight)
+            self.sampler[i] = equal_weight
             self.weights[i] = equal_weight
         note("Equalized all weights to 1.0")
 
@@ -232,7 +232,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
             return
 
         near_zero = 1e-100
-        self.sampler.update(index, near_zero)
+        self.sampler[index] = near_zero
         self.weights[index] = near_zero
         note(f"Effectively removed index {index} (set to {near_zero})")
 
@@ -243,7 +243,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         index = index % len(self.weights)
         if self.weights[index] < 0.01:
             new_weight = 1.0
-            self.sampler.update(index, new_weight)
+            self.sampler[index] = new_weight
             self.weights[index] = new_weight
             note(f"Restored index {index} to weight {new_weight}")
 
@@ -302,7 +302,7 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
         """Our tracked weights should match the sampler's weights."""
         if self.sampler is not None:
             for i, expected in enumerate(self.weights):
-                actual = self.sampler.weight(i)
+                actual = self.sampler[i]
                 rel_error = abs(actual - expected) / max(expected, 1e-10)
                 assert rel_error < 1e-9, (
                     f"Weight mismatch at {i}: expected {expected}, got {actual}"
@@ -435,7 +435,7 @@ def test_updates_followed_by_samples_are_valid(
 
     for idx, new_weight in updates:
         if idx < len(initial_weights):
-            sampler.update(idx, new_weight)
+            sampler[idx] = new_weight
 
     # Samples should always be valid
     for _ in range(50):

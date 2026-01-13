@@ -132,11 +132,12 @@ def test_sampling_after_delete() -> None:
 
     sampler: Any = DynamicSampler([1.0, 1.0, 1.0, 1.0], seed=42)
 
-    # Delete indices 0, 1, 2
-    del sampler[0]
-    del sampler[1]
-    del sampler[2]
+    # Delete three elements (indices shift after each delete)
+    del sampler[0]  # Now [1.0, 1.0, 1.0] at indices 0,1,2
+    del sampler[0]  # Now [1.0, 1.0] at indices 0,1
+    del sampler[0]  # Now [1.0] at index 0
 
-    # Now only index 3 should be sampled
+    # Now only one element remains at index 0
+    assert len(sampler) == 1
     for _ in range(50):
-        assert sampler.sample() == 3
+        assert sampler.sample() == 0

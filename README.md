@@ -36,26 +36,32 @@ just build    # Build the Rust extension
 ```python
 from dynamic_random_sampler import DynamicSampler
 
-# Create sampler with weights
+# Create sampler with weights - works like a list of weights
 sampler = DynamicSampler([1.0, 2.0, 3.0])
 
 # Sample an index (returns 0, 1, or 2 with probabilities 1/6, 2/6, 3/6)
 index = sampler.sample()
 
-# Update a weight
-sampler.update(0, 10.0)  # Now index 0 has weight 10
+# Access weights like a list
+weight = sampler[0]     # Get weight at index 0
+sampler[0] = 10.0       # Update weight at index 0
 
-# Insert a new element
-new_index = sampler.insert(5.0)  # Returns 3
+# Add new elements
+sampler.append(5.0)     # Add weight 5.0 at end
+sampler.extend([1.0, 2.0])  # Add multiple weights
 
-# Delete an element (soft delete - index remains stable)
-sampler.delete(1)
+# Delete elements (shifts indices like a list)
+del sampler[1]          # Remove element at index 1
 
-# Check deletion status
-is_deleted = sampler.is_deleted(1)  # True
+# Soft exclusion (keeps element but excludes from sampling)
+sampler[2] = 0.0        # Element stays at index 2 but won't be sampled
 
-# Get active (non-deleted) count
-count = sampler.active_count()  # 3
+# Standard list operations
+len(sampler)            # Number of elements
+list(sampler)           # Get all weights as a list
+2.0 in sampler          # Check if weight exists
+sampler.pop()           # Remove and return last element
+sampler.clear()         # Remove all elements
 ```
 
 ### Statistical Testing
