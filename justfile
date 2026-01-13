@@ -148,3 +148,4 @@ sync-from-template:
 coverage:
     cargo +nightly llvm-cov --no-report
     cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
+    cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
