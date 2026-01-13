@@ -312,6 +312,160 @@ fn bench_mixed_workflow(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark bulk delete operations.
+fn bench_bulk_delete(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bulk_delete");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+
+    for &n in &sizes {
+        let weights = Distribution::Uniform.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+
+        // Benchmark deleting k elements from the END (should be optimizable)
+        for k in [1, 10, 50] {
+            if k > n / 2 {
+                continue;
+            }
+            let mut tree = MutableTree::new(log_weights.clone());
+            let mut deleted_count = 0;
+
+            group.bench_function(BenchmarkId::new(format!("from_end_{k}"), n), |b| {
+                b.iter(|| {
+                    // Reset tree when we've deleted too many
+                    if deleted_count >= n / 2 {
+                        tree = MutableTree::new(log_weights.clone());
+                        deleted_count = 0;
+                    }
+
+                    // Delete k elements from the end
+                    let current_len = tree.len();
+                    for i in 0..k {
+                        let idx = current_len - 1 - i;
+                        if !tree.is_deleted(idx) {
+                            tree.delete(black_box(idx));
+                        }
+                    }
+                    deleted_count += k;
+                });
+            });
+        }
+
+        // Benchmark deleting k RANDOM elements (baseline comparison)
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+        for k in [1, 10, 50] {
+            if k > n / 2 {
+                continue;
+            }
+            let mut tree = MutableTree::new(log_weights.clone());
+            let mut available: Vec<usize> = (0..n).collect();
+
+            group.bench_function(BenchmarkId::new(format!("random_{k}"), n), |b| {
+                b.iter(|| {
+                    // Reset when we've used too many
+                    if available.len() < k * 2 {
+                        tree = MutableTree::new(log_weights.clone());
+                        available = (0..n).collect();
+                    }
+
+                    // Delete k random elements
+                    for _ in 0..k {
+                        let pos = rng.gen_range(0..available.len());
+                        let idx = available.swap_remove(pos);
+                        tree.delete(black_box(idx));
+                    }
+                });
+            });
+        }
+    }
+
+    group.finish();
+}
+
+/// Benchmark bulk insert (extend) operations.
+fn bench_bulk_insert(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bulk_insert");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+    let mut rng = ChaCha8Rng::seed_from_u64(12345);
+
+    for &n in &sizes {
+        let weights = Distribution::Uniform.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+
+        // Benchmark inserting k elements at the end
+        for k in [1, 10, 50] {
+            let mut tree = MutableTree::new(log_weights.clone());
+
+            group.bench_function(BenchmarkId::new(format!("extend_{k}"), n), |b| {
+                b.iter(|| {
+                    // Keep tree size bounded
+                    if tree.len() > n * 2 {
+                        tree = MutableTree::new(log_weights.clone());
+                    }
+
+                    // Insert k elements
+                    for _ in 0..k {
+                        let weight = rng.gen_range(-2.0..2.0);
+                        tree.insert(black_box(weight));
+                    }
+                });
+            });
+        }
+    }
+
+    group.finish();
+}
+
+/// Benchmark pop operations (delete from end, one at a time).
+fn bench_pop(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pop");
+    group.sampling_mode(SamplingMode::Flat);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    group.sample_size(20);
+
+    let sizes = [100, 1000];
+
+    for &n in &sizes {
+        let weights = Distribution::Uniform.generate_weights(n);
+        let log_weights = to_log_weights(&weights);
+
+        let mut tree = MutableTree::new(log_weights.clone());
+        let mut active_count = n;
+
+        group.bench_function(BenchmarkId::new("single", n), |b| {
+            b.iter(|| {
+                // Reset when we've popped too many
+                if active_count < n / 2 {
+                    tree = MutableTree::new(log_weights.clone());
+                    active_count = n;
+                }
+
+                // Pop by deleting the last non-deleted element
+                // Find last active element
+                for i in (0..tree.len()).rev() {
+                    if !tree.is_deleted(i) {
+                        tree.delete(black_box(i));
+                        active_count -= 1;
+                        break;
+                    }
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_construction,
@@ -320,5 +474,8 @@ criterion_group!(
     bench_update,
     bench_insert_delete,
     bench_mixed_workflow,
+    bench_bulk_delete,
+    bench_bulk_insert,
+    bench_pop,
 );
 criterion_main!(benches);

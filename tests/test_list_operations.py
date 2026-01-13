@@ -206,6 +206,63 @@ def test_delitem_slice_step() -> None:
     assert abs(sampler[1] - 4.0) < 1e-10
 
 
+def test_getitem_slice_negative_step() -> None:
+    """Test getting weights with negative slice step (reverse)."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    result = sampler[::-1]  # Reverse
+    assert len(result) == 5
+    assert abs(result[0] - 5.0) < 1e-10
+    assert abs(result[4] - 1.0) < 1e-10
+
+
+def test_setitem_slice_negative_step() -> None:
+    """Test setting weights with negative slice step."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    sampler[4:1:-1] = [50.0, 40.0, 30.0]  # Set indices 4, 3, 2
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 2.0) < 1e-10
+    assert abs(sampler[2] - 30.0) < 1e-10
+    assert abs(sampler[3] - 40.0) < 1e-10
+    assert abs(sampler[4] - 50.0) < 1e-10
+
+
+def test_delitem_slice_negative_step() -> None:
+    """Test deleting elements with negative slice step."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    del sampler[4::-2]  # Delete indices 4, 2, 0
+    assert len(sampler) == 2
+    assert abs(sampler[0] - 2.0) < 1e-10
+    assert abs(sampler[1] - 4.0) < 1e-10
+
+
+def test_getitem_full_slice() -> None:
+    """Test getting all elements with full slice."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    result = sampler[:]
+    assert len(result) == 3
+    assert result == list(sampler)
+
+
+def test_delitem_from_end() -> None:
+    """Test deleting from the end (should be efficient)."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+    del sampler[-2:]  # Delete last 2 elements
+    assert len(sampler) == 3
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 2.0) < 1e-10
+    assert abs(sampler[2] - 3.0) < 1e-10
+
+
 # =============================================================================
 # Contains Tests (__contains__)
 # =============================================================================
@@ -467,3 +524,99 @@ def test_remove_nonexistent() -> None:
     sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
     with pytest.raises(ValueError):
         sampler.remove(5.0)
+
+
+# =============================================================================
+# End-deletion Optimization Tests
+# =============================================================================
+
+
+def test_multiple_pops_efficient() -> None:
+    """Test that multiple pops work correctly.
+
+    This tests the optimization where popping from end doesn't trigger
+    a full index_map rebuild.
+    """
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
+    assert len(sampler) == 100
+
+    # Pop 50 elements from the end
+    for i in range(50):
+        weight = sampler.pop()
+        expected = float(100 - i)
+        assert abs(weight - expected) < 1e-10
+
+    assert len(sampler) == 50
+    # Verify remaining elements are correct
+    for i in range(50):
+        assert abs(sampler[i] - float(i + 1)) < 1e-10
+
+
+def test_del_from_end_efficient() -> None:
+    """Test that deleting from end doesn't trigger full rebuild.
+
+    Deleting del sampler[-1] should just truncate the index_map.
+    """
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
+    assert len(sampler) == 100
+
+    # Delete last 50 elements one by one
+    for _ in range(50):
+        del sampler[-1]
+
+    assert len(sampler) == 50
+    # Verify remaining elements are correct
+    for i in range(50):
+        assert abs(sampler[i] - float(i + 1)) < 1e-10
+
+
+def test_del_slice_from_end_efficient() -> None:
+    """Test that deleting a slice from end works efficiently."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([float(i) for i in range(1, 101)])
+    assert len(sampler) == 100
+
+    # Delete last 50 elements as a slice
+    del sampler[50:]
+
+    assert len(sampler) == 50
+    # Verify remaining elements are correct
+    for i in range(50):
+        assert abs(sampler[i] - float(i + 1)) < 1e-10
+
+
+def test_mixed_operations_after_end_deletion() -> None:
+    """Test that other operations work correctly after end deletions."""
+    from dynamic_random_sampler import DynamicSampler
+
+    sampler: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    # Delete from end
+    del sampler[-1]  # Removes 5.0
+    assert len(sampler) == 4
+    assert list(sampler) == [1.0, 2.0, 3.0, 4.0]
+
+    # Append new element
+    sampler.append(6.0)
+    assert len(sampler) == 5
+    assert abs(sampler[4] - 6.0) < 1e-10
+
+    # Pop
+    weight = sampler.pop()
+    assert abs(weight - 6.0) < 1e-10
+    assert len(sampler) == 4
+
+    # Delete from middle (triggers rebuild)
+    del sampler[1]  # Removes 2.0
+    assert len(sampler) == 3
+    assert list(sampler) == [1.0, 3.0, 4.0]
+
+    # Operations after middle deletion still work
+    sampler.append(7.0)
+    assert len(sampler) == 4
+    assert list(sampler) == [1.0, 3.0, 4.0, 7.0]

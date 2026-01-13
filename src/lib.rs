@@ -291,6 +291,9 @@ mod python_bindings {
         /// Removes the element(s) and shifts subsequent indices down, like a Python list.
         /// This is different from setting weight to 0 (which keeps the element).
         ///
+        /// Optimized for deleting from the end: if we're deleting a contiguous
+        /// slice at the end, we truncate `index_map` directly instead of rebuilding.
+        ///
         /// # Errors
         ///
         /// Returns error if index is out of bounds.
@@ -303,19 +306,57 @@ mod python_bindings {
                 }
                 let len = self.index_map.len();
                 let mut py_indices = slice_indices(slice, len)?;
+
+                if py_indices.is_empty() {
+                    return Ok(());
+                }
+
                 // Sort in reverse order so we delete from the end first
                 py_indices.sort_unstable_by(|a, b| b.cmp(a));
-                for py_idx in py_indices {
+
+                // Check if we're deleting a contiguous slice from the end
+                // This is O(1) and avoids the O(n) rebuild
+                let is_contiguous_from_end = py_indices
+                    .iter()
+                    .enumerate()
+                    .all(|(i, &idx)| idx == len - 1 - i);
+
+                // Delete from tree
+                for &py_idx in &py_indices {
                     let internal_idx = self.index_map[py_idx];
                     self.tree.delete(internal_idx);
                 }
-                self.index_map_dirty = true;
+
+                if is_contiguous_from_end {
+                    // Optimization: just truncate the index_map
+                    self.index_map.truncate(len - py_indices.len());
+                } else {
+                    // General case: need full rebuild
+                    self.index_map_dirty = true;
+                }
                 Ok(())
             } else if let Ok(index) = key.extract::<isize>() {
                 // Handle integer index
+                // map_index already rebuilds index_map if needed
                 let internal_idx = self.map_index(index)?;
+                let len = self.index_map.len();
                 self.tree.delete(internal_idx);
-                self.index_map_dirty = true;
+
+                // Check if we're deleting the last element (optimization)
+                #[allow(clippy::cast_sign_loss)]
+                let py_idx = if index < 0 {
+                    len - ((-index) as usize)
+                } else {
+                    index as usize
+                };
+
+                if py_idx == len - 1 {
+                    // Deleting the last element - just pop from index_map
+                    self.index_map.pop();
+                } else {
+                    // General case: need full rebuild
+                    self.index_map_dirty = true;
+                }
                 Ok(())
             } else {
                 Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
