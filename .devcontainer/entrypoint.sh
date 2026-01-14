@@ -98,15 +98,13 @@ exec /usr/bin/gh "$@"
 GH_WRAPPER
     chmod +x ~/.local/bin/gh
 
-    # Set up SSH for git push (deploy key was set up on host by initialize.sh)
+    # Set up SSH for git push (deploy key and remote URL set up on host by initialize.sh)
     python3 << 'SETUP_SSH'
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-PROJECT_DIR = Path("/workspaces/dynamic-random-sampler")
 SSH_HOST_DIR = Path("/mnt/ssh-keys")
 SSH_KEY = SSH_HOST_DIR / "devcontainer"
 SSH_DIR = Path.home() / ".ssh"
@@ -148,36 +146,8 @@ if result.returncode == 0:
     with open(known_hosts, "a") as f:
         f.write(result.stdout)
 
-# Get current remote URL and extract owner/repo
-result = subprocess.run(
-    ["git", "remote", "get-url", "origin"],
-    capture_output=True, text=True,
-    cwd=PROJECT_DIR
-)
-if result.returncode != 0:
-    print(f"ERROR: could not get git remote: {result.stderr}")
-    sys.exit(1)
-
-remote_url = result.stdout.strip()
-match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
-if not match:
-    print(f"ERROR: could not parse GitHub URL: {remote_url}")
-    sys.exit(1)
-
-owner, repo = match.groups()
-ssh_url = f"git@github.com:{owner}/{repo}.git"
-
-# Set remote to SSH URL
-result = subprocess.run(
-    ["git", "remote", "set-url", "origin", ssh_url],
-    capture_output=True, text=True,
-    cwd=PROJECT_DIR
-)
-if result.returncode != 0:
-    print(f"ERROR: could not set git remote: {result.stderr}")
-    sys.exit(1)
-
-print(f"SSH: configured for git push ({ssh_url})")
+# Remote URL was already set to SSH by host initialization
+print("SSH: configured for git push")
 SETUP_SSH
 
     echo "GitHub: credentials configured"

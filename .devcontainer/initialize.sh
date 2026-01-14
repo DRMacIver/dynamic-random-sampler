@@ -33,11 +33,12 @@ else
         echo "SSH: using existing key pair"
     fi
 
-    # Get repo info from git remote
-    REMOTE_URL=$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || echo "")
-    if [[ "$REMOTE_URL" =~ github.com[:/]([^/]+)/([^/]+?)(\.git)?$ ]]; then
-        OWNER="${BASH_REMATCH[1]}"
-        REPO="${BASH_REMATCH[2]}"
+    # Get repo info using gh
+    cd "$PROJECT_DIR"
+    REPO_INFO=$(gh repo view --json owner,name 2>/dev/null || echo "")
+    if [ -n "$REPO_INFO" ]; then
+        OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
+        REPO=$(echo "$REPO_INFO" | jq -r '.name')
         echo "SSH: setting up deploy key for $OWNER/$REPO"
 
         KEY_TITLE="Devcontainer (auto-generated)"
@@ -70,8 +71,12 @@ else
                 echo "SSH: could not add deploy key (may already exist)"
             fi
         fi
+
+        # Set remote URL to SSH format
+        git remote set-url origin "git@github.com:$OWNER/$REPO.git"
+        echo "SSH: set remote to git@github.com:$OWNER/$REPO.git"
     else
-        echo "SSH: could not parse remote URL: $REMOTE_URL"
+        echo "SSH: could not get repo info (not a GitHub repo?)"
     fi
 fi
 
