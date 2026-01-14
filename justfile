@@ -1,12 +1,11 @@
 # List available commands
-# Install dependencies
-# Serve documentation locally
 # Docker image name
+# Install dependencies
 # Check next release version
+# Serve documentation locally
 
 default:
     @just --list
-
 
 
 DOCKER_IMAGE := "dynamic-random-sampler-dev"
@@ -32,15 +31,12 @@ bench:
     cargo criterion
 
 
-
 build:
     uv run maturin develop
 
 
-
 build-release:
     uv run maturin develop --release
-
 
 
 check: lint test-cov
@@ -55,7 +51,6 @@ coverage:
     cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
     cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
 
-
 develop *ARGS:
     #!/usr/bin/env bash
     set -e
@@ -66,11 +61,41 @@ develop *ARGS:
     # Run host initialization
     bash .devcontainer/initialize.sh
 
-    # Extract Claude credentials from macOS Keychain (Linux containers can't access Keychain)
+    # Extract Claude credentials from macOS
+    # Claude Code needs two things:
+    # 1. OAuth tokens from Keychain -> .credentials.json
+    # 2. Config file with oauthAccount -> .claude.json (tells Claude who is logged in)
     CLAUDE_CREDS_DIR="$(pwd)/.devcontainer/.credentials"
     mkdir -p "$CLAUDE_CREDS_DIR"
+
     if command -v security &> /dev/null; then
-        security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null > "$CLAUDE_CREDS_DIR/claude-keychain.json" || true
+        echo "Extracting Claude credentials from macOS..."
+
+        # Extract OAuth tokens from Keychain
+        CLAUDE_KEYCHAIN_FILE="$CLAUDE_CREDS_DIR/claude-keychain.json"
+        security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null > "$CLAUDE_KEYCHAIN_FILE" || true
+        if [ -s "$CLAUDE_KEYCHAIN_FILE" ]; then
+            echo "  OAuth tokens: $(wc -c < "$CLAUDE_KEYCHAIN_FILE") bytes"
+        else
+            echo "  WARNING: No OAuth tokens in Keychain"
+            echo "  Run 'claude' on macOS and log in first"
+            rm -f "$CLAUDE_KEYCHAIN_FILE"
+        fi
+
+        # Copy Claude config file (contains oauthAccount which identifies logged-in user)
+        CLAUDE_CONFIG_FILE="$CLAUDE_CREDS_DIR/claude-config.json"
+        if [ -f "$HOME/.claude/.claude.json" ]; then
+            cp "$HOME/.claude/.claude.json" "$CLAUDE_CONFIG_FILE"
+            echo "  Config file: copied from ~/.claude/.claude.json"
+        elif [ -f "$HOME/.claude.json" ]; then
+            cp "$HOME/.claude.json" "$CLAUDE_CONFIG_FILE"
+            echo "  Config file: copied from ~/.claude.json"
+        else
+            echo "  WARNING: No Claude config file found"
+            echo "  Run 'claude' on macOS and complete login first"
+        fi
+    else
+        echo "Note: Not running on macOS, skipping credential extraction"
     fi
 
     # Detect terminal background color mode
@@ -123,10 +148,8 @@ format-py:
     uv run ruff check --fix .
 
 
-
 format-rust:
     cargo fmt
-
 
 
 install:
@@ -136,7 +159,6 @@ install:
 install-rust-tools:
     rustup component add clippy rustfmt llvm-tools-preview
     cargo install cargo-llvm-cov
-
 
 
 lint:
@@ -151,11 +173,9 @@ lint-py:
     uv run python scripts/extra_lints.py
 
 
-
 lint-rust:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
-
 
 
 release:
@@ -211,7 +231,6 @@ sync-from-template:
     fi
 
 
-
 test *ARGS:
     uv run pytest {{ARGS}}
 
@@ -220,14 +239,12 @@ test-all:
     uv run pytest
 
 
-
 test-cov:
     uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
 
 
 test-slow:
     uv run pytest -m slow
-
 
 
 test-v:

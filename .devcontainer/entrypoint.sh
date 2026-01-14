@@ -10,23 +10,60 @@ export PATH="/home/vscode/.local/bin:$PATH"
 # Set Claude config directory
 export CLAUDE_CONFIG_DIR="$HOME/.claude"
 
-# Copy Claude credentials from host if not present
+# Copy Claude credentials from host if not present in container
+# Claude Code needs:
+# 1. OAuth tokens in ~/.claude/.credentials.json
+# 2. Config with oauthAccount in ~/.claude/.claude.json (identifies logged-in user)
 CLAUDE_DIR_HOME="$HOME/.claude"
 CLAUDE_KEYCHAIN_HOST="/mnt/credentials/claude-keychain.json"
+CLAUDE_CONFIG_HOST="/mnt/credentials/claude-config.json"
 CLAUDE_COPY_MARKER="$HOME/.claude-credentials-copied"
 
+# Check if we need to copy credentials
+# We re-copy if: marker missing, credentials missing, OR config missing
+NEED_CREDS_COPY="no"
 if [ ! -f "$CLAUDE_COPY_MARKER" ]; then
-    echo "Setting up Claude credentials..."
+    NEED_CREDS_COPY="yes"
+elif [ ! -f "$CLAUDE_DIR_HOME/.credentials.json" ]; then
+    NEED_CREDS_COPY="yes"
+    rm -f "$CLAUDE_COPY_MARKER"
+elif [ ! -f "$CLAUDE_DIR_HOME/.claude.json" ]; then
+    NEED_CREDS_COPY="yes"
+    rm -f "$CLAUDE_COPY_MARKER"
+fi
 
-    # Copy OAuth tokens from macOS Keychain extract (if available)
+if [ "$NEED_CREDS_COPY" = "yes" ]; then
+    echo "Setting up Claude credentials..."
+    mkdir -p "$CLAUDE_DIR_HOME"
+    CREDS_OK="yes"
+
+    # Copy OAuth tokens
     if [ -f "$CLAUDE_KEYCHAIN_HOST" ] && [ -s "$CLAUDE_KEYCHAIN_HOST" ]; then
-        mkdir -p "$CLAUDE_DIR_HOME"
         cp "$CLAUDE_KEYCHAIN_HOST" "$CLAUDE_DIR_HOME/.credentials.json"
         chmod 600 "$CLAUDE_DIR_HOME/.credentials.json"
-        echo "  Copied OAuth credentials from Keychain"
+        echo "  OAuth tokens: copied ($(wc -c < "$CLAUDE_DIR_HOME/.credentials.json") bytes)"
+    else
+        echo "  WARNING: OAuth tokens not found at $CLAUDE_KEYCHAIN_HOST"
+        CREDS_OK="no"
     fi
 
-    touch "$CLAUDE_COPY_MARKER"
+    # Copy config file (contains oauthAccount)
+    if [ -f "$CLAUDE_CONFIG_HOST" ] && [ -s "$CLAUDE_CONFIG_HOST" ]; then
+        cp "$CLAUDE_CONFIG_HOST" "$CLAUDE_DIR_HOME/.claude.json"
+        chmod 600 "$CLAUDE_DIR_HOME/.claude.json"
+        echo "  Config file: copied ($(wc -c < "$CLAUDE_DIR_HOME/.claude.json") bytes)"
+    else
+        echo "  WARNING: Config file not found at $CLAUDE_CONFIG_HOST"
+        CREDS_OK="no"
+    fi
+
+    if [ "$CREDS_OK" = "yes" ]; then
+        touch "$CLAUDE_COPY_MARKER"
+        echo "  Claude credentials setup complete"
+    else
+        echo "  WARNING: Incomplete credentials - Claude may ask to log in"
+        echo "  Run 'claude' on macOS host and log in first"
+    fi
 fi
 
 # Run setup if not done yet (or if post-create.sh changed)
