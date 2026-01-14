@@ -66,40 +66,16 @@ if [ "$NEED_CREDS_COPY" = "yes" ]; then
     fi
 fi
 
-# Set up GitHub token from scoped credentials (if available)
-# This uses the GitHub App installation token, NOT user credentials
-# IMPORTANT: We use a credential helper script that reads fresh from the file
-# each time, so token refresh on the host is picked up automatically.
+# Set up GitHub credentials (if available)
+# Uses:
+# - SSH deploy keys for git push (permanent, per-project)
+# - GitHub App token for API calls like gh CLI (expires but refreshed)
 GH_TOKEN_FILE="/mnt/credentials/github_token.json"
 if [ -f "$GH_TOKEN_FILE" ] && [ -s "$GH_TOKEN_FILE" ]; then
-    # Create a credential helper script that reads token fresh each time
     mkdir -p ~/.local/bin
-    cat > ~/.local/bin/git-credential-github-token << 'CREDENTIAL_HELPER'
-#!/bin/bash
-# Git credential helper that reads from the mounted token file
-# This ensures we always use the latest token after host-side refresh
-TOKEN_FILE="/mnt/credentials/github_token.json"
-if [ "$1" = "get" ]; then
-    if [ -f "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
-        TOKEN=$(jq -r '.token' "$TOKEN_FILE" 2>/dev/null)
-        if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-            echo "protocol=https"
-            echo "host=github.com"
-            echo "username=x-access-token"
-            echo "password=$TOKEN"
-        fi
-    fi
-fi
-CREDENTIAL_HELPER
-    chmod +x ~/.local/bin/git-credential-github-token
-
-    # Configure git to use our credential helper
-    git config --global credential.helper ""
-    git config --global credential.https://github.com.helper "~/.local/bin/git-credential-github-token"
 
     # For gh CLI, create a wrapper script that shadows /usr/bin/gh
-    # Named 'gh' so it's found first in PATH (~/.local/bin is already first)
-    # This works in both interactive and non-interactive shells (unlike aliases)
+    # This reads the token fresh each time (handles refresh on host)
     cat > ~/.local/bin/gh << 'GH_WRAPPER'
 #!/bin/bash
 # Wrapper that sets GH_TOKEN fresh from file before running gh
@@ -122,7 +98,159 @@ exec /usr/bin/gh "$@"
 GH_WRAPPER
     chmod +x ~/.local/bin/gh
 
-    echo "GitHub: scoped token configured (reads fresh from file)"
+    # Set up SSH deploy keys for git push
+    # These are permanent (don't expire like tokens) and scoped to specific repos
+    python3 << 'SETUP_SSH_KEYS'
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+try:
+    import httpx
+except ImportError:
+    print("httpx not available, skipping SSH key setup")
+    sys.exit(0)
+
+TOKEN_FILE = Path("/mnt/credentials/github_token.json")
+SSH_PERSISTENT_DIR = Path("/mnt/ssh-keys")
+SSH_DIR = Path.home() / ".ssh"
+
+if not TOKEN_FILE.exists():
+    print("No GitHub token file, skipping SSH key setup")
+    sys.exit(0)
+
+try:
+    creds = json.loads(TOKEN_FILE.read_text())
+except json.JSONDecodeError as e:
+    print(f"Invalid JSON in token file: {e}")
+    sys.exit(0)
+
+token = creds.get("token")
+repos = creds.get("repos", [])
+if not token or not repos:
+    print("No token or repos in credentials")
+    sys.exit(0)
+
+# Ensure directories exist
+SSH_DIR.mkdir(parents=True, exist_ok=True)
+SSH_DIR.chmod(0o700)
+SSH_PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
+
+private_key = SSH_DIR / "devcontainer"
+public_key = SSH_DIR / "devcontainer.pub"
+persistent_private = SSH_PERSISTENT_DIR / "devcontainer"
+persistent_public = SSH_PERSISTENT_DIR / "devcontainer.pub"
+
+# Check for existing keys in persistent storage first
+if persistent_private.exists() and persistent_public.exists():
+    shutil.copy(persistent_private, private_key)
+    shutil.copy(persistent_public, public_key)
+    private_key.chmod(0o600)
+    public_key.chmod(0o644)
+    print("SSH: copied keys from persistent storage")
+elif not private_key.exists():
+    # Generate new key pair
+    result = subprocess.run(
+        ["ssh-keygen", "-t", "ed25519", "-f", str(private_key), "-N", "",
+         "-C", f"devcontainer-{'-'.join(repos)}"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"SSH keygen failed: {result.stderr}")
+        sys.exit(0)
+    print("SSH: generated new key pair")
+    # Save to persistent storage
+    shutil.copy(private_key, persistent_private)
+    shutil.copy(public_key, persistent_public)
+    persistent_private.chmod(0o600)
+    persistent_public.chmod(0o644)
+    print("SSH: saved to persistent storage")
+
+# Get the owner from git remote
+owner = "DRMacIver"
+try:
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, check=True
+    )
+    remote_url = result.stdout.strip()
+    if "github.com" in remote_url:
+        if remote_url.startswith("git@"):
+            owner = remote_url.split(":")[-1].split("/")[0]
+        else:
+            owner = remote_url.split("/")[-2]
+except (subprocess.CalledProcessError, IndexError):
+    pass
+
+# Register deploy key on each repo
+pub_key_content = public_key.read_text().strip()
+for repo in repos:
+    url = f"https://api.github.com/repos/{owner}/{repo}/keys"
+    try:
+        response = httpx.post(
+            url,
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={
+                "title": "Devcontainer (auto-generated)",
+                "key": pub_key_content,
+                "read_only": False,
+            },
+            timeout=30,
+        )
+        if response.status_code == 201:
+            print(f"SSH: added deploy key to {repo}")
+        elif response.status_code == 422:
+            print(f"SSH: deploy key already exists on {repo}")
+        else:
+            print(f"SSH: could not add key to {repo}: {response.status_code}")
+    except Exception as e:
+        print(f"SSH: error adding key to {repo}: {e}")
+
+# Write SSH config
+ssh_config = SSH_DIR / "config"
+ssh_config_content = (
+    "Host github.com\n"
+    "    HostName github.com\n"
+    "    User git\n"
+    "    IdentityFile " + str(private_key) + "\n"
+    "    IdentitiesOnly yes\n"
+)
+ssh_config.write_text(ssh_config_content)
+ssh_config.chmod(0o600)
+print("SSH: configured for github.com")
+
+# Convert HTTPS remote to SSH (if applicable)
+try:
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True, check=True
+    )
+    remote_url = result.stdout.strip()
+    # Check if it's an HTTPS GitHub URL
+    if remote_url.startswith("https://github.com/"):
+        # Convert to SSH: https://github.com/owner/repo.git -> git@github.com:owner/repo.git
+        path = remote_url.replace("https://github.com/", "")
+        if not path.endswith(".git"):
+            path += ".git"
+        ssh_url = f"git@github.com:{path}"
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", ssh_url],
+            check=True, capture_output=True
+        )
+        print(f"SSH: converted remote to {ssh_url}")
+except subprocess.CalledProcessError:
+    pass  # No remote or git not available
+SETUP_SSH_KEYS
+
+    # Add github.com to known hosts
+    ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
+    echo "GitHub: credentials configured (SSH for push, token for API)"
 fi
 
 # Run setup if not done yet (or if post-create.sh changed)
