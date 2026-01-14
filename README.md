@@ -4,6 +4,10 @@ A high-performance weighted random sampler with dynamic weight updates, implemen
 the data structure from "Dynamic Generation of Discrete Random Variates" by
 Matias, Vitter, and Ni (1993/2003).
 
+## Quality Disclaimer
+
+The majority of this code was written by Claude Code, with heavy human guidance. It has had moderate human review and been extensively tested (again, mostly by Claude). It is likely to be reasonably robust, but it is still an early release that has not seen much use in practice, so there may be problems that have not yet been discovered. If you run into any, please report them.
+
 ## Features
 
 - $O(\log^* N)$ **sampling**: Expected constant time for all practical $N$ (up to $2^{65536}$)
