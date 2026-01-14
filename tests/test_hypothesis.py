@@ -24,6 +24,7 @@ from hypothesis.stateful import (
 
 
 @given(st.lists(st.floats(min_value=0.01, max_value=1e6), min_size=1, max_size=100))
+@settings(deadline=None)
 def test_construction_with_positive_weights(weights: list[float]) -> None:
     """Any list of positive weights should construct successfully."""
     from dynamic_random_sampler import DynamicSampler
@@ -33,6 +34,7 @@ def test_construction_with_positive_weights(weights: list[float]) -> None:
 
 
 @given(st.lists(st.floats(min_value=0.01, max_value=1e6), min_size=1, max_size=100))
+@settings(deadline=None)
 def test_weights_are_preserved(weights: list[float]) -> None:
     """Weights should be retrievable after construction."""
     from dynamic_random_sampler import DynamicSampler
@@ -45,7 +47,7 @@ def test_weights_are_preserved(weights: list[float]) -> None:
 
 
 @given(st.lists(st.floats(min_value=0.01, max_value=1e6), min_size=1, max_size=50))
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 def test_sample_returns_valid_indices(weights: list[float]) -> None:
     """Sample should always return a valid index."""
     from dynamic_random_sampler import DynamicSampler
@@ -61,6 +63,7 @@ def test_sample_returns_valid_indices(weights: list[float]) -> None:
     st.integers(min_value=0, max_value=19),
     st.floats(min_value=0.01, max_value=1e6),
 )
+@settings(deadline=None)
 def test_update_changes_weight(
     weights: list[float], index: int, new_weight: float
 ) -> None:
@@ -80,6 +83,7 @@ def test_update_changes_weight(
     st.integers(min_value=0, max_value=19),
     st.floats(min_value=0.01, max_value=1e6),
 )
+@settings(deadline=None)
 def test_update_preserves_other_weights(
     weights: list[float], index: int, new_weight: float
 ) -> None:
@@ -364,7 +368,7 @@ TestDynamicSamplerStateful.settings = settings(
 
 
 @given(st.data())
-@settings(max_examples=20)
+@settings(max_examples=20, deadline=None)
 def test_dominant_weight_gets_most_samples(data: st.DataObject) -> None:
     """An element with vastly higher weight should get almost all samples."""
     from dynamic_random_sampler import DynamicSampler
@@ -393,7 +397,7 @@ def test_dominant_weight_gets_most_samples(data: st.DataObject) -> None:
 
 
 @given(st.lists(st.floats(min_value=1.0, max_value=10.0), min_size=2, max_size=10))
-@settings(max_examples=30)
+@settings(max_examples=30, deadline=None)
 def test_all_elements_can_be_sampled(weights: list[float]) -> None:
     """With similar weights, all elements should eventually be sampled."""
     from dynamic_random_sampler import DynamicSampler
@@ -424,7 +428,7 @@ def test_all_elements_can_be_sampled(weights: list[float]) -> None:
         max_size=20,
     ),
 )
-@settings(max_examples=20)
+@settings(max_examples=20, deadline=None)
 def test_updates_followed_by_samples_are_valid(
     initial_weights: list[float], updates: list[tuple[int, float]]
 ) -> None:

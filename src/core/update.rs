@@ -1901,6 +1901,8 @@ mod tests {
 
     #[test]
     fn test_update_crosses_range_boundary_triggers_propagate_delete() {
+        use crate::core::sample;
+
         // Reproducer from Hypothesis: update that moves element to different range
         // and triggers propagate_delete to reach the base case (recursion past top level).
         //
@@ -1914,9 +1916,28 @@ mod tests {
         // Update element 0 to a much larger weight
         tree.update(0, 304_492.81_f64.log2());
 
-        // Verify the tree is still valid
+        // Verify the tree is still valid structurally
         assert_eq!(tree.active_count(), 2);
         assert!((tree.element_log_weight(0).unwrap() - 304_492.81_f64.log2()).abs() < 1e-10);
+        assert!((tree.element_log_weight(1).unwrap() - 495_120.14_f64.log2()).abs() < 1e-10);
+
+        // Verify sampling behavior: both weights are similar (~300k vs ~500k),
+        // so element 1 should be sampled more often (about 62% vs 38%)
+        let mut rng = rand::thread_rng();
+        let samples: Vec<usize> = (0..1000)
+            .filter_map(|_| sample(&tree.as_tree(), &mut rng))
+            .collect();
+        let count_0 = samples.iter().filter(|&&x| x == 0).count();
+        let count_1 = samples.iter().filter(|&&x| x == 1).count();
+
+        // Element 1 has higher weight, should be sampled more
+        assert!(
+            count_1 > count_0,
+            "Element 1 (weight ~495k) should be sampled more than element 0 (weight ~304k), got {count_1} vs {count_0}",
+        );
+        // Both elements should be reachable
+        assert!(count_0 > 0, "Element 0 should be sampled at least once");
+        assert!(count_1 > 0, "Element 1 should be sampled at least once");
     }
 
     #[test]
