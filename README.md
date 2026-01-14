@@ -6,8 +6,8 @@ Matias, Vitter, and Ni (1993/2003).
 
 ## Features
 
-- **$O(\log^* N)$ sampling**: Expected constant time for all practical $N$ (up to $2^{65536}$)
-- **$O(\log^* N)$ updates**: Amortized expected time for weight changes
+- $O(\log^* N)$ **sampling**: Expected constant time for all practical $N$ (up to $2^{65536}$)
+- $O(\log^* N)$ **updates**: Amortized expected time for weight changes
 - **Dynamic operations**: Append, pop, and update weights without rebuilding
 - **Numerically stable**: Handles weights spanning $10^{-300}$ to $10^{300}$
 - **Python bindings**: Easy-to-use Python API via PyO3
@@ -104,7 +104,7 @@ wd.clear()              # Remove all keys
 The algorithm achieves sub-logarithmic time complexity through a tree structure
 where elements are partitioned by weight ranges. Key optimizations include:
 
-- **$O(1)$ random child access**: Dual Vec+HashMap storage for rejection sampling
+- $O(1)$ **random child access**: Dual Vec+HashMap storage for rejection sampling
 - **Gumbel-max trick**: Log-space sampling without normalization
 - **Weight caching**: Avoid redundant log-sum-exp computations
 - **Lazy propagation**: Small weight changes don't propagate through tree
