@@ -93,15 +93,6 @@ def test_chi_squared_custom_num_samples() -> None:
         assert result.num_samples == n
 
 
-def test_chi_squared_import() -> None:
-    """Verify ChiSquaredResult can be imported."""
-    from dynamic_random_sampler import (
-        ChiSquaredResult,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-
-    assert ChiSquaredResult is not None
-
-
 @pytest.mark.slow
 def test_chi_squared_high_confidence() -> None:
     """High-cost test with large sample size for strong confidence.

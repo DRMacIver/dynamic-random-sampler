@@ -99,18 +99,6 @@ wd.pop("apple")         # Remove and return weight
 wd.clear()              # Remove all keys
 ```
 
-### Statistical Testing
-
-Both types include built-in chi-squared testing:
-
-```python
-sampler = SamplerList([1.0, 2.0, 3.0])
-result = sampler.test_distribution(num_samples=10000)
-print(f"Chi-squared: {result.chi_squared}")
-print(f"P-value: {result.p_value}")
-print(f"Passes at alpha=0.05: {result.passes(0.05)}")
-```
-
 ## Performance
 
 The algorithm achieves sub-logarithmic time complexity through a tree structure
