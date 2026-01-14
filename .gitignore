@@ -60,3 +60,8 @@ Cargo.lock
 *.pyc
 *.pyo
 site/
+
+# Added by capability regeneration
+.devcontainer/.ssh/
+.devcontainer/.docker-build-hash
+.claude/setup.local.md

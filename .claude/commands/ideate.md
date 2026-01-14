@@ -72,4 +72,4 @@ After ideation:
 
 The following should NOT be generated as ideas during ideation:
 
-- **New language templates** (e.g., Go, Java, Ruby, etc.) - Adding new language support is a significant undertaking that should only be done when explicitly requested by the user. The current templates (Python, TypeScript, Rust, C++, and hybrids) cover the primary use cases.
+- **New language capabilities** (e.g., Go, Java, Ruby, etc.) - Adding new language support is a significant undertaking that should only be done when explicitly requested by the user. The current languages (Python, TypeScript, Rust, C++, and hybrids) cover the primary use cases.

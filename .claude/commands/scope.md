@@ -111,6 +111,6 @@ Run this command when:
 3. **Before /goal-verify** - to ensure you get appropriate verification guidance
 4. **If /checkpoint suggests it** - when default config is detected
 
-## Template: python
+## Language: python
 
-This project uses the `python` template, which influences available characteristics and defaults.
+This is a `python` project, which influences available characteristics and defaults.

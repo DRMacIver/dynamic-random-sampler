@@ -263,19 +263,12 @@ def check_github_build_status() -> tuple[bool, str | None]:
         return False, None
 
     # Get workflow runs for current branch
-    exit_code, output = run_command(
-        [
-            "gh",
-            "run",
-            "list",
-            "--branch",
-            branch,
-            "--limit",
-            "5",
-            "--json",
-            "status,conclusion,name,headSha",
-        ]
-    )
+    exit_code, output = run_command([
+        "gh", "run", "list",
+        "--branch", branch,
+        "--limit", "5",
+        "--json", "status,conclusion,name,headSha",
+    ])
 
     if exit_code != 0:
         return False, None  # API error, don't block
@@ -520,7 +513,9 @@ def check_large_files() -> list[str]:
     _, staged = run_command(["git", "diff", "--cached", "--name-only"])
 
     # Check untracked files
-    _, untracked = run_command(["git", "ls-files", "--others", "--exclude-standard"])
+    _, untracked = run_command(
+        ["git", "ls-files", "--others", "--exclude-standard"]
+    )
 
     files_to_check: list[str] = []
     if staged.strip():
@@ -662,18 +657,9 @@ def main() -> int:
         _, untracked = run_command(untracked_cmd)
         if untracked.strip():
             suspicious_patterns = [
-                ".env",
-                ".local",
-                ".secret",
-                "credentials",
-                "__pycache__",
-                ".pyc",
-                "node_modules",
-                ".DS_Store",
-                ".coverage",
-                "htmlcov",
-                ".pytest_cache",
-                ".mypy_cache",
+                ".env", ".local", ".secret", "credentials",
+                "__pycache__", ".pyc", "node_modules", ".DS_Store",
+                ".coverage", "htmlcov", ".pytest_cache", ".mypy_cache",
             ]
             suspicious_files: list[str] = []
             for f in untracked.strip().split("\n"):

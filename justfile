@@ -1,21 +1,46 @@
 # List available commands
 # Install dependencies
 # Serve documentation locally
+# Docker image name
+# Check next release version
 
 default:
     @just --list
+
+
+
+DOCKER_IMAGE := "dynamic-random-sampler-dev"
+
+
+_docker-build:
+    #!/usr/bin/env bash
+    set -e
+    HASH=$(cat .devcontainer/Dockerfile | sha256sum | cut -d' ' -f1)
+    SENTINEL=".devcontainer/.docker-build-hash"
+    CACHED_HASH=""
+    if [ -f "$SENTINEL" ]; then
+        CACHED_HASH=$(cat "$SENTINEL")
+    fi
+    if [ "$HASH" != "$CACHED_HASH" ]; then
+        echo "Dockerfile changed, rebuilding image..."
+        docker build -t {{DOCKER_IMAGE}} -f .devcontainer/Dockerfile .
+        echo "$HASH" > "$SENTINEL"
+    fi
 
 
 bench:
     cargo criterion
 
 
+
 build:
     uv run maturin develop
 
 
+
 build-release:
     uv run maturin develop --release
+
 
 
 check: lint test-cov
@@ -30,28 +55,56 @@ coverage:
     cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
     cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
 
+
 develop *ARGS:
     #!/usr/bin/env bash
     set -e
-    devcontainer up --workspace-folder .
-    if [ -z "{{ARGS}}" ]; then
-        # Detect terminal background color mode
-        # Check COLORFGBG (format: "fg;bg" - bg >= 7 usually means light background)
-        # Check common env vars, default to light mode
-        THEME="light-ansi"
-        if [ -n "$COLORFGBG" ]; then
-            BG=$(echo "$COLORFGBG" | cut -d';' -f2)
-            if [ "$BG" -lt 7 ] 2>/dev/null; then
-                THEME="dark-ansi"
-            fi
-        elif [ "$TERM_BACKGROUND" = "dark" ]; then
-            THEME="dark-ansi"
-        fi
-        devcontainer exec --workspace-folder . claude --dangerously-skip-permissions --settings "{\"theme\":\"$THEME\"}"
-    else
-        devcontainer exec --workspace-folder . {{ARGS}}
+
+    # Build image if needed
+    just _docker-build
+
+    # Run host initialization
+    bash .devcontainer/initialize.sh
+
+    # Extract Claude credentials from macOS Keychain (Linux containers can't access Keychain)
+    CLAUDE_CREDS_DIR="$(pwd)/.devcontainer/.credentials"
+    mkdir -p "$CLAUDE_CREDS_DIR"
+    if command -v security &> /dev/null; then
+        security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null > "$CLAUDE_CREDS_DIR/claude-keychain.json" || true
     fi
 
+    # Detect terminal background color mode
+    THEME="light-ansi"
+    if [ -n "$COLORFGBG" ]; then
+        BG=$(echo "$COLORFGBG" | cut -d';' -f2)
+        if [ "$BG" -lt 7 ] 2>/dev/null; then
+            THEME="dark-ansi"
+        fi
+    elif [ "$TERM_BACKGROUND" = "dark" ]; then
+        THEME="dark-ansi"
+    fi
+
+    # Determine command to run
+    if [ -z "{{ARGS}}" ]; then
+        SETTINGS="{\"theme\":\"$THEME\"}"
+        DOCKER_CMD="claude --dangerously-skip-permissions --settings '$SETTINGS'"
+    else
+        DOCKER_CMD="{{ARGS}}"
+    fi
+
+    # Run container with all necessary mounts
+    docker run -it --rm \
+        -v "$(pwd):/workspaces/dynamic-random-sampler" \
+        -v "$(pwd)/.devcontainer/.credentials:/mnt/credentials:ro" \
+        -v "$(pwd)/.devcontainer/.ssh:/mnt/ssh-keys" \
+        -v "dynamic-random-sampler-home:/home/vscode" \
+        -v "dynamic-random-sampler-.cache:/workspaces/dynamic-random-sampler/.cache" \
+        -e ANTHROPIC_API_KEY= \
+        -w /workspaces/dynamic-random-sampler \
+        --user vscode \
+        --entrypoint /workspaces/dynamic-random-sampler/.devcontainer/entrypoint.sh \
+        {{DOCKER_IMAGE}} \
+        bash -c "$DOCKER_CMD"
 
 docs-build:
     uv run mkdocs build
@@ -70,8 +123,10 @@ format-py:
     uv run ruff check --fix .
 
 
+
 format-rust:
     cargo fmt
+
 
 
 install:
@@ -81,6 +136,7 @@ install:
 install-rust-tools:
     rustup component add clippy rustfmt llvm-tools-preview
     cargo install cargo-llvm-cov
+
 
 
 lint:
@@ -95,9 +151,22 @@ lint-py:
     uv run python scripts/extra_lints.py
 
 
+
 lint-rust:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
+
+
+
+release:
+    uv run python scripts/release.py
+
+release-preview:
+    uv run python scripts/release.py --dry-run
+
+
+release-version:
+    uv run python scripts/release.py --version-only
 
 
 sync-from-template:
@@ -142,6 +211,7 @@ sync-from-template:
     fi
 
 
+
 test *ARGS:
     uv run pytest {{ARGS}}
 
@@ -150,12 +220,14 @@ test-all:
     uv run pytest
 
 
+
 test-cov:
     uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
 
 
 test-slow:
     uv run pytest -m slow
+
 
 
 test-v:

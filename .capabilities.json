@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "capabilities": {
+    "python": "1.0.0",
+    "pypi-native-wheels": "1.0.0",
+    "readthedocs": "1.0.0"
+  },
+  "infrastructure": {},
+  "created_at": "2026-01-14T04:55:02.532928+00:00",
+  "updated_at": "2026-01-14T04:55:03.806407+00:00",
+  "setup_completed": {
+    "python": "2026-01-14T04:55:03.353860+00:00",
+    "pypi-native-wheels": "2026-01-14T04:55:03.534773+00:00",
+    "readthedocs": "2026-01-14T04:55:03.806384+00:00"
+  },
+  "migrated_from": {
+    "template": "python",
+    "commit": "5b451b6ce685d31e35293af8c8c0ea685bd5b602"
+  }
+}
