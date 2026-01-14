@@ -244,8 +244,12 @@ try:
             cwd=PROJECT_DIR
         )
         print(f"SSH: converted remote to {ssh_url}")
-except subprocess.CalledProcessError:
-    pass  # No remote or git not available
+    elif remote_url.startswith("git@"):
+        print(f"SSH: remote already using SSH ({remote_url})")
+    else:
+        print(f"SSH: unknown remote format: {remote_url}")
+except subprocess.CalledProcessError as e:
+    print(f"SSH: could not get/set remote: {e.stderr or e}")
 SETUP_SSH_KEYS
 
     # Add github.com to known hosts
