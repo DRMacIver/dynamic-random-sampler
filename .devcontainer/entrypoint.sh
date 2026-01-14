@@ -207,44 +207,49 @@ for repo in repos:
             print(f"SSH: added deploy key to {repo}")
         elif response.status_code == 422:
             # Key already exists - check if it has write access
+            # Match by key content (fingerprint), not title
             list_response = httpx.get(base_url, headers=headers, timeout=30)
             if list_response.status_code == 200:
                 keys = list_response.json()
+                # Find key by matching the key content
                 for key in keys:
-                    if key.get("title") == key_title:
-                        if not key.get("read_only", True):
-                            # Already has write access, nothing to do
-                            print(f"SSH: deploy key on {repo} already has write access")
-                        else:
-                            # Read-only, need to replace it
-                            key_id = key.get("id")
-                            del_response = httpx.delete(
-                                f"{base_url}/{key_id}",
-                                headers=headers,
-                                timeout=30,
-                            )
-                            if del_response.status_code == 204:
-                                re_add = httpx.post(
-                                    base_url,
+                    # GitHub returns the key without the comment, so compare just the key part
+                    existing_key = key.get("key", "")
+                    our_key_parts = pub_key_content.split()
+                    if len(our_key_parts) >= 2:
+                        our_key = f"{our_key_parts[0]} {our_key_parts[1]}"
+                        if existing_key == our_key:
+                            if not key.get("read_only", True):
+                                print(f"SSH: deploy key on {repo} already has write access")
+                            else:
+                                key_id = key.get("id")
+                                del_response = httpx.delete(
+                                    f"{base_url}/{key_id}",
                                     headers=headers,
-                                    json={
-                                        "title": key_title,
-                                        "key": pub_key_content,
-                                        "read_only": False,
-                                    },
                                     timeout=30,
                                 )
-                                if re_add.status_code == 201:
-                                    print(f"SSH: replaced deploy key on {repo} (now with write access)")
+                                if del_response.status_code == 204:
+                                    re_add = httpx.post(
+                                        base_url,
+                                        headers=headers,
+                                        json={
+                                            "title": key_title,
+                                            "key": pub_key_content,
+                                            "read_only": False,
+                                        },
+                                        timeout=30,
+                                    )
+                                    if re_add.status_code == 201:
+                                        print(f"SSH: replaced deploy key on {repo} (now with write access)")
+                                    else:
+                                        print(f"ERROR: failed to re-add key to {repo}: {re_add.status_code}")
+                                        sys.exit(1)
                                 else:
-                                    print(f"ERROR: failed to re-add key to {repo}: {re_add.status_code}")
+                                    print(f"ERROR: could not delete old key from {repo}: {del_response.status_code}")
                                     sys.exit(1)
-                            else:
-                                print(f"ERROR: could not delete old key from {repo}: {del_response.status_code}")
-                                sys.exit(1)
-                        break
+                            break
                 else:
-                    print(f"ERROR: deploy key exists on {repo} but couldn't find it by title")
+                    print(f"ERROR: deploy key rejected but couldn't find matching key on {repo}")
                     sys.exit(1)
             else:
                 print(f"ERROR: could not list keys for {repo}: {list_response.status_code}")
