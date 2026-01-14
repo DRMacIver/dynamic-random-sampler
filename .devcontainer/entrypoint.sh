@@ -107,7 +107,7 @@ import sys
 from pathlib import Path
 
 PROJECT_DIR = Path("/workspaces/dynamic-random-sampler")
-SSH_HOST_DIR = Path("/mnt/credentials/../.ssh")
+SSH_HOST_DIR = Path("/mnt/ssh-keys")
 SSH_KEY = SSH_HOST_DIR / "devcontainer"
 SSH_DIR = Path.home() / ".ssh"
 
