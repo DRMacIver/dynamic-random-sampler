@@ -54,3 +54,9 @@ Cargo.lock
 
 # Added by template sync
 .claude/*.local
+
+# Added by capability: readthedocs
+.cache/
+*.pyc
+*.pyo
+site/

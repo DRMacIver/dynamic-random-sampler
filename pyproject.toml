@@ -1,22 +1,21 @@
 [project]
 name = "dynamic-random-sampler"
 version = "0.1.0"
-description = "Dynamic weighted random sampling with O(log* N) operations"
+description = ""
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
+
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
-
-[tool.maturin]
-features = ["pyo3/extension-module"]
-python-source = "python"
-module-name = "dynamic_random_sampler"
-
-# For debug builds, you can enable the debug-timeout feature:
-# maturin develop --features debug-timeout
-# This will cause operations to panic if they exceed 1 second
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
@@ -25,9 +24,12 @@ dev = [
     "hypothesis>=6.0",
     "ruff>=0.4",
     "basedpyright>=1.10",
-    "maturin>=1.0",
     "pyyaml>=6.0",
+    "libcst>=1.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dynamic_random_sampler"]
 
 [tool.ruff]
 line-length = 88
@@ -39,25 +41,19 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
 [tool.basedpyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
-# Relax checks for Rust-generated modules (type information unavailable at lint time)
-reportUnknownVariableType = "none"
-reportUnknownArgumentType = "none"
-reportUnknownMemberType = "none"
-reportAttributeAccessIssue = "none"
+reportUnnecessaryTypeIgnoreComment = "error"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short --durations=0"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
-]
+addopts = "-v --tb=short"
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 branch = true
 source = ["dynamic_random_sampler"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 100
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

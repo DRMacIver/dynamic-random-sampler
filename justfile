@@ -1,8 +1,35 @@
 # List available commands
+# Install dependencies
+# Serve documentation locally
+
 default:
     @just --list
 
-# Start devcontainer and run claude (or custom command if args provided)
+
+bench:
+    cargo criterion
+
+
+build:
+    uv run maturin develop
+
+
+build-release:
+    uv run maturin develop --release
+
+
+check: lint test-cov
+
+
+clean:
+    rm -rf dist/ build/ *.egg-info/ .pytest_cache/ .coverage htmlcov/ .ruff_cache/ .cache/
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+coverage:
+    cargo +nightly llvm-cov --no-report
+    cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
+    cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
+
 develop *ARGS:
     #!/usr/bin/env bash
     set -e
@@ -25,84 +52,54 @@ develop *ARGS:
         devcontainer exec --workspace-folder . {{ARGS}}
     fi
 
-# Install dependencies (Rust + Python)
+
+docs-build:
+    uv run mkdocs build
+
+docs-serve:
+    uv run mkdocs serve
+
+
+format:
+    uv run ruff format .
+    uv run ruff check --fix .
+
+
+format-py:
+    uv run ruff format .
+    uv run ruff check --fix .
+
+
+format-rust:
+    cargo fmt
+
+
 install:
     uv sync --group dev
-    uv run maturin develop
 
-# Build Rust extension
-build:
-    uv run maturin develop
 
-# Build Rust extension in release mode
-build-release:
-    uv run maturin develop --release
+install-rust-tools:
+    rustup component add clippy rustfmt llvm-tools-preview
+    cargo install cargo-llvm-cov
 
-# Run tests (skips slow tests by default)
-test:
-    uv run pytest -m "not slow"
 
-# Run only slow tests
-test-slow:
-    uv run pytest -m slow
+lint:
+    uv run ruff check .
+    uv run basedpyright
+    uv run python scripts/extra_lints.py
 
-# Run all tests including slow ones
-test-all:
-    uv run pytest
 
-# Run Python tests with verbose output
-test-v:
-    uv run pytest -v
-
-# Run tests with coverage
-test-cov:
-    uv run pytest --cov --cov-report=term-missing
-
-# Run Rust benchmarks (uses cargo-criterion for table output)
-bench:
-    cargo criterion
-
-# Run all linters
-lint: lint-rust lint-py
-
-# Run Rust linters
-lint-rust:
-    cargo clippy --all-targets --all-features -- -D warnings
-    cargo fmt --check
-
-# Run Python linters
 lint-py:
     uv run ruff check .
     uv run basedpyright
     uv run python scripts/extra_lints.py
 
-# Format all code
-format: format-rust format-py
 
-# Format Rust code
-format-rust:
-    cargo fmt
+lint-rust:
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo fmt --check
 
-# Format Python code
-format-py:
-    uv run ruff format .
-    uv run ruff check --fix .
 
-# Run all checks
-check: lint test
-
-# Clean build artifacts
-clean:
-    rm -rf dist/ build/ *.egg-info/ .pytest_cache/ .coverage htmlcov/ .ruff_cache/ .cache/
-    rm -rf target/
-    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-
-# Install Rust development tools
-install-rust-tools:
-    rustup component add clippy rustfmt llvm-tools-preview
-    cargo install cargo-llvm-cov
-
-# Sync project from latest template
 sync-from-template:
     #!/usr/bin/env bash
     set -e
@@ -144,8 +141,23 @@ sync-from-template:
         claude --append-system-prompt "$SYNC_PROMPT"
     fi
 
-# Run coverage with nightly and verify thresholds
-coverage:
-    cargo +nightly llvm-cov --no-report
-    cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
-    cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
+
+test *ARGS:
+    uv run pytest {{ARGS}}
+
+
+test-all:
+    uv run pytest
+
+
+test-cov:
+    uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
+
+
+test-slow:
+    uv run pytest -m slow
+
+
+test-v:
+    uv run pytest -v
+
