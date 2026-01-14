@@ -133,19 +133,19 @@ impl Tree {
 
     /// Get the number of elements.
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.element_log_weights.len()
     }
 
     /// Check if the tree is empty.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.element_log_weights.is_empty()
     }
 
     /// Get the number of levels (excluding the implicit level 0).
     #[must_use]
-    pub const fn level_count(&self) -> usize {
+    pub fn level_count(&self) -> usize {
         self.levels.len()
     }
 
@@ -153,7 +153,7 @@ impl Tree {
     ///
     /// Returns 0 for an empty tree, 1 if there are elements but no ranges, etc.
     #[must_use]
-    pub const fn height(&self) -> usize {
+    pub fn height(&self) -> usize {
         if self.element_log_weights.is_empty() {
             0
         } else {
@@ -215,7 +215,7 @@ impl Tree {
 
     /// Get the maximum level number (L in the paper).
     #[must_use]
-    pub const fn max_level(&self) -> usize {
+    pub fn max_level(&self) -> usize {
         self.levels.len()
     }
 

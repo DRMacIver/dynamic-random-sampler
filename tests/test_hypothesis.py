@@ -495,7 +495,9 @@ def test_extreme_weight_range() -> None:
 
     # Element 2 has weight 1e100 / (1e100 + 1 + 1e-100) ≈ 1.0
     # It should get virtually all samples
-    assert counts[2] > 990, f"Element 2 should get >99% of samples, got {counts[2]/10}%"
+    assert counts[2] > 990, (
+        f"Element 2 should get >99% of samples, got {counts[2] / 10}%"
+    )
 
     # Elements 0 and 1 should get effectively 0 samples
     # (probability is about 1e-100 for element 0 and 1e-100 for element 1)

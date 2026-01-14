@@ -355,7 +355,7 @@ fn sample_from_range<R: Rng>(range: &Range, rng: &mut R) -> Option<usize> {
 
         // Log very low acceptance probabilities
         #[cfg(feature = "debug-timeout")]
-        if accept_prob < 1e-10 && counter.count().is_multiple_of(10000) {
+        if accept_prob < 1e-10 && counter.count() % 10000 == 0 {
             eprintln!(
                 "[DEBUG] Very low accept_prob {:.2e} at iteration {} for child {} in range {}",
                 accept_prob,

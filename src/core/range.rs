@@ -71,13 +71,13 @@ impl Range {
 
     /// Get the number of children (degree) in this range.
     #[must_use]
-    pub const fn degree(&self) -> usize {
+    pub fn degree(&self) -> usize {
         self.children_vec.len()
     }
 
     /// Check if the range is empty (has no children).
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.children_vec.is_empty()
     }
 
@@ -85,7 +85,7 @@ impl Range {
     ///
     /// Root ranges are stored in level tables rather than parent ranges.
     #[must_use]
-    pub const fn is_root(&self) -> bool {
+    pub fn is_root(&self) -> bool {
         self.children_vec.len() == 1
     }
 

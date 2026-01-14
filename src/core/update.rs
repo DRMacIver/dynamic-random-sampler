@@ -147,13 +147,13 @@ impl MutableTree {
 
     /// Get the number of elements.
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.element_log_weights.len()
     }
 
     /// Check if the tree is empty.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.element_log_weights.is_empty()
     }
 
@@ -165,7 +165,7 @@ impl MutableTree {
 
     /// Get the number of levels.
     #[must_use]
-    pub const fn level_count(&self) -> usize {
+    pub fn level_count(&self) -> usize {
         self.levels.len()
     }
 
@@ -256,14 +256,18 @@ impl MutableTree {
             .config
             .weight_in_tolerated_range(old_range, new_log_weight);
 
-        if stays_in_range {
+        // Check if range still exists (may have been cleaned up during tree maintenance)
+        let range_exists = self
+            .levels
+            .first()
+            .is_some_and(|l| l.get_range(old_range).is_some());
+
+        if stays_in_range && range_exists {
             // Lazy update: just update the weight in the current range
-            // Invariant: level 0 always exists if we have elements
             let level = self.levels.get_mut(0).expect("level 0 must exist");
-            // Invariant: range must exist since element is in old_range
             let range = level
                 .get_range_mut(old_range)
-                .expect("range must exist for element");
+                .expect("range must exist (just checked)");
             range.update_child_weight(index, new_log_weight);
 
             // Propagate weight changes up (but no structural changes)
@@ -357,11 +361,16 @@ impl MutableTree {
 
     /// Propagate structural change when a range becomes root or empty.
     /// This removes the range from the parent level and continues propagating up.
+    ///
+    /// `level_num` is 1-indexed: level 1 = `self.levels[0]`, level 2 = `self.levels[1]`, etc.
     fn propagate_delete(&mut self, level_num: usize, range_number: i32) {
         let _guard = TimeoutGuard::new("propagate_delete");
 
-        // If no parent level exists, nothing to do
-        if level_num >= self.levels.len() {
+        // level_num is 1-indexed, so level_idx is the actual vector index
+        let level_idx = level_num - 1;
+
+        // If no parent level exists, nothing to do (recursion base case)
+        if level_idx >= self.levels.len() {
             return;
         }
 
@@ -372,7 +381,7 @@ impl MutableTree {
         let child_idx = range_number as usize;
 
         // Find which parent range contains this child
-        let parent_range_number = self.levels.get(level_num).and_then(|l| {
+        let parent_range_number = self.levels.get(level_idx).and_then(|l| {
             l.ranges()
                 .find(|(_, r)| r.children().any(|(idx, _)| idx == child_idx))
                 .map(|(j, _)| j)
@@ -385,26 +394,26 @@ impl MutableTree {
         // Check if parent range was non-root before
         let parent_was_non_root = self
             .levels
-            .get(level_num)
+            .get(level_idx)
             .is_some_and(|l| !l.is_root_range(parent_range));
 
         // Remove this range from the parent level
-        if let Some(parent_level) = self.levels.get_mut(level_num) {
+        if let Some(parent_level) = self.levels.get_mut(level_idx) {
             parent_level.remove_child(parent_range, child_idx);
         }
 
         // Check if parent is now root (or empty)
         let parent_is_root_or_empty = self
             .levels
-            .get(level_num)
+            .get(level_idx)
             .is_none_or(|l| l.is_root_range(parent_range) || l.get_range(parent_range).is_none());
 
         // Propagate up if parent changed from non-root to root/empty
         if parent_was_non_root && parent_is_root_or_empty {
             self.propagate_delete(level_num + 1, parent_range);
         } else if parent_was_non_root {
-            // coverage: acceptable - requires parent with 3+ children, hard to construct
-            self.propagate_weight_changes(level_num, parent_range); // coverage: acceptable
+            // Parent still has 2+ children after removing one, just update its weight
+            self.propagate_weight_changes(level_num, parent_range);
         }
     }
 
@@ -549,7 +558,10 @@ impl MutableTree {
     /// This function only propagates weight updates through existing non-root ranges.
     fn propagate_weight_changes(&mut self, level_num: usize, range_number: i32) {
         // Invariants: always called with level >= 1, and levels is never empty
-        debug_assert!(level_num >= 1, "propagate_weight_changes called with level 0");
+        debug_assert!(
+            level_num >= 1,
+            "propagate_weight_changes called with level 0"
+        );
         debug_assert!(
             level_num <= self.levels.len(),
             "propagate_weight_changes called with level {} but only {} levels exist",
@@ -565,9 +577,9 @@ impl MutableTree {
         // Get the range and recompute its total weight
         // Invariant: range must exist since we're propagating weight for it
         let level = &mut self.levels[level_num - 1];
-        let range = level.get_range_mut(range_number).expect(
-            "propagate_weight_changes called for non-existent range",
-        );
+        let range = level
+            .get_range_mut(range_number)
+            .expect("propagate_weight_changes called for non-existent range");
         let new_weight = range.total_log_weight();
 
         // Check if this range is a root - if so, no parent to update
@@ -578,9 +590,7 @@ impl MutableTree {
             // Deleted weight means the range is empty - handled by propagate_delete
             debug_assert!(
                 !is_deleted_weight(new_weight),
-                "Non-root range {} at level {} has deleted weight",
-                range_number,
-                level_num
+                "Non-root range {range_number} at level {level_num} has deleted weight"
             );
 
             // Update weight in parent level
@@ -591,16 +601,19 @@ impl MutableTree {
             // Update parent range if it exists
             // Note: parent range may not exist yet during tree construction or
             // may have been removed during concurrent deletions
-            if let Some(parent_level) = self.levels.get_mut(level_num) {
-                if let Some(parent_range) = parent_level.get_range_mut(parent_range_number) {
-                    parent_range.update_child_weight(child_idx, new_weight);
-                }
-                // else: parent range doesn't exist yet, skip update
-            }
-            // else: parent level doesn't exist yet, skip update
+            let should_propagate = self.levels.get_mut(level_num).is_some_and(|parent_level| {
+                parent_level
+                    .get_range_mut(parent_range_number)
+                    .is_some_and(|parent_range| {
+                        parent_range.update_child_weight(child_idx, new_weight);
+                        true
+                    })
+            });
 
-            // Continue propagating up
-            self.propagate_weight_changes(level_num + 1, parent_range_number);
+            // Continue propagating up only if parent range exists
+            if should_propagate {
+                self.propagate_weight_changes(level_num + 1, parent_range_number);
+            }
         }
     }
 
@@ -1673,5 +1686,313 @@ mod tests {
 
         // Tree structure should be maintained
         assert_eq!(tree.active_count(), 64);
+    }
+
+    // -------------------------------------------------------------------------
+    // propagate_delete edge case tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_propagate_delete_past_top_level() {
+        // Create a tree with few elements that might have minimal levels
+        // Then delete elements to trigger propagation past the top level
+        let mut tree = MutableTree::new(vec![1.0, 1.0, 1.0]);
+
+        // Delete elements one by one - this exercises propagate_delete
+        tree.delete(0);
+        tree.delete(1);
+        tree.delete(2);
+
+        // All should be deleted
+        assert!(tree.is_deleted(0));
+        assert!(tree.is_deleted(1));
+        assert!(tree.is_deleted(2));
+        assert_eq!(tree.active_count(), 0);
+    }
+
+    #[test]
+    fn test_propagate_delete_multiple_levels() {
+        // Create a tree with enough elements to have multiple levels
+        // Then delete elements to cause cascading propagation
+        let weights: Vec<f64> = (0..16).map(|i| f64::from(i + 1)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Delete multiple elements to exercise propagate_delete thoroughly
+        for i in 0..16 {
+            tree.delete(i);
+        }
+
+        // All should be deleted
+        assert_eq!(tree.active_count(), 0);
+    }
+
+    #[test]
+    fn test_equalize_weights_exercises_propagate_delete() {
+        // This test mimics what the Hypothesis stateful tests do:
+        // Start with varied weights, then set all to 1.0
+        // This causes major tree restructuring that exercises propagate_delete
+        let weights: Vec<f64> = (1..=20).map(f64::from).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Set all weights to 1.0 (log2(1) = 0)
+        for i in 0..20 {
+            tree.update(i, 0.0); // log2(1) = 0
+        }
+
+        // Tree should still function correctly
+        assert_eq!(tree.active_count(), 20);
+
+        // All weights should be 0.0 (log2)
+        for i in 0..20 {
+            assert_eq!(tree.element_log_weight(i), Some(0.0));
+        }
+    }
+
+    #[test]
+    fn test_hypothesis_minimal_reproducer() {
+        // Minimal reproducer from Hypothesis stateful test:
+        // init_sampler(weights=[0.1, 0.1])
+        // equalize_weights() repeated with sampling interleaved
+        //
+        // This exercises the propagate_delete early return path
+
+        use crate::core::sampler::sample;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        // weights=[0.1, 0.1] in log2 space = log2(0.1) ≈ -3.32
+        let log_weight = 0.1_f64.log2();
+        let mut tree = MutableTree::new(vec![log_weight, log_weight]);
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+        // equalize_weights sets all weights to 1.0 (log2(1) = 0)
+        // Interleave with sampling like Hypothesis does
+        for _ in 0..15 {
+            tree.update(0, 0.0);
+            tree.update(1, 0.0);
+            // Sample (like never_samples_effectively_removed invariant)
+            let _ = sample(&tree.as_tree(), &mut rng);
+        }
+
+        // Tree should still be valid
+        assert_eq!(tree.active_count(), 2);
+    }
+
+    #[test]
+    fn test_weight_updates_cause_range_transitions() {
+        // Create elements in different ranges, then move them all to one range
+        // This should exercise propagate_delete when ranges empty out
+        let mut tree = MutableTree::new(vec![1.0, 4.0, 16.0, 64.0]); // Different ranges
+
+        // Move all to the same range (weight 1.0 = log 0)
+        tree.update(0, 0.0);
+        tree.update(1, 0.0);
+        tree.update(2, 0.0);
+        tree.update(3, 0.0);
+
+        // All should now be at log weight 0
+        assert_eq!(tree.element_log_weight(0), Some(0.0));
+        assert_eq!(tree.element_log_weight(1), Some(0.0));
+        assert_eq!(tree.element_log_weight(2), Some(0.0));
+        assert_eq!(tree.element_log_weight(3), Some(0.0));
+    }
+
+    #[test]
+    fn test_propagate_delete_reaches_top_of_tree() {
+        // This test creates a tree with multiple levels, then deletes elements
+        // to cause propagate_delete to recurse past the topmost level.
+        //
+        // Strategy:
+        // 1. Create elements that produce non-root ranges (degree >= 2 at each level)
+        // 2. Delete elements to make ranges become root/empty
+        // 3. The deletion cascade should eventually recurse past the top
+
+        // Create many elements in the SAME range to ensure we get non-root ranges.
+        // All weights = 1.0 (log2 = 0) means they all go to range 1.
+        // This creates a tree with multiple levels because range 1 at each level
+        // will have many children.
+        let n = 64; // Enough to create multiple levels
+        let weights: Vec<f64> = vec![0.0; n]; // All in range 1
+
+        let mut tree = MutableTree::new(weights);
+        let initial_levels = tree.level_count();
+
+        // The tree should have multiple levels because all elements are in one range
+        assert!(
+            initial_levels >= 2,
+            "Expected at least 2 levels, got {initial_levels}"
+        );
+
+        // Delete all but one element - this should cause the tree to shrink
+        // and propagate_delete to eventually recurse past the top
+        for i in 0..n - 1 {
+            tree.delete(i);
+        }
+
+        // Tree should still work
+        assert_eq!(tree.active_count(), 1);
+        assert!(!tree.is_deleted(n - 1));
+
+        // Now delete the last one
+        tree.delete(n - 1);
+        assert_eq!(tree.active_count(), 0);
+    }
+
+    #[test]
+    fn test_propagate_delete_recurses_to_nonexistent_level() {
+        // This test specifically exercises the base case of propagate_delete
+        // where we try to propagate past the topmost level.
+        //
+        // The key insight: when a range at the highest level transitions
+        // from non-root to root/empty, the recursive call tries to find
+        // a parent at a level that doesn't exist.
+
+        // Start with 4 elements in the same range (all weight 1.0)
+        // This creates a single non-root range at level 1
+        let weights: Vec<f64> = vec![0.0, 0.0, 0.0, 0.0];
+        let mut tree = MutableTree::new(weights);
+
+        // With 4 elements in one range, level 1 has one range with degree 4
+        // Level 2 should have one range containing that level-1 range
+        let level_count = tree.level_count();
+
+        // Delete 3 of 4 elements. When we go from 2 children to 1,
+        // the range at level 1 becomes a root, triggering propagate_delete
+        // at the next level up
+        tree.delete(0);
+        tree.delete(1);
+        tree.delete(2);
+
+        // After deletes, only 1 element remains
+        assert_eq!(tree.active_count(), 1);
+
+        // The level count might have changed
+        let _new_level_count = tree.level_count();
+
+        // The key assertion: tree still works after cascading deletes
+        assert!(!tree.is_deleted(3));
+        assert_eq!(tree.element_log_weight(3), Some(0.0));
+
+        // Delete the last one to fully exercise the path
+        tree.delete(3);
+        assert_eq!(tree.active_count(), 0);
+
+        // Ensure we had multiple levels to propagate through
+        assert!(
+            level_count >= 2,
+            "Test requires at least 2 levels initially, got {level_count}"
+        );
+    }
+
+    #[test]
+    fn test_delete_all_triggers_full_propagation() {
+        // Similar to above but with varied weights to create a more complex tree structure.
+        // Elements with weights 2^0, 2^1, 2^2, ... go to different ranges.
+        let weights: Vec<f64> = (0..32).map(|i| f64::from(i % 8)).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Delete all elements one by one
+        for i in 0..32 {
+            tree.delete(i);
+        }
+
+        assert_eq!(tree.active_count(), 0);
+    }
+
+    #[test]
+    fn test_shrink_tree_via_weight_changes() {
+        // Create a tree and then move all elements to the same range,
+        // which should cause major structural changes including propagate_delete
+        // being called at the higher levels.
+
+        // Start with varied weights across different ranges
+        let weights: Vec<f64> = (0..32).map(|i| f64::from(i + 1).log2()).collect();
+        let mut tree = MutableTree::new(weights);
+
+        // Move all elements to the same range (weight = 1, log = 0)
+        for i in 0..32 {
+            tree.update(i, 0.0);
+        }
+
+        // Now delete all but a few
+        for i in 0..30 {
+            tree.delete(i);
+        }
+
+        // Remaining elements should still work
+        assert_eq!(tree.active_count(), 2);
+    }
+
+    #[test]
+    fn test_collapse_complex_tree_structure() {
+        // This test mimics what Hypothesis does: start with varied weights
+        // spread across many ranges, then equalize them all.
+        //
+        // The key insight: when elements move from many different ranges
+        // into one range, the source ranges become empty and trigger
+        // cascading propagate_delete calls up the tree.
+
+        // Create elements with exponentially varying weights to ensure
+        // they're spread across many different ranges
+        let n = 50;
+        let weights: Vec<f64> = (0..n)
+            .map(|i| {
+                // Weights: 1, 2, 4, 8, 16, 32, ... spread elements across ranges
+                let power = i % 10;
+                f64::from(1u32 << power).log2()
+            })
+            .collect();
+
+        let mut tree = MutableTree::new(weights);
+        let initial_levels = tree.level_count();
+
+        // Verify we have a complex structure
+        assert!(
+            initial_levels >= 1,
+            "Should have at least 1 level initially"
+        );
+
+        // Now equalize all weights to 1.0 (log2 = 0)
+        // This moves all elements to the same range, emptying the others
+        for i in 0..n {
+            tree.update(i, 0.0);
+        }
+
+        // Tree should still work correctly
+        assert_eq!(tree.active_count(), n);
+        for i in 0..n {
+            assert_eq!(tree.element_log_weight(i), Some(0.0));
+        }
+    }
+
+    #[test]
+    fn test_repeated_equalize_and_diversify() {
+        // Alternate between spreading elements across ranges and
+        // collapsing them to the same range. This exercises the
+        // tree restructuring code paths extensively.
+
+        let n = 20usize;
+        #[allow(clippy::cast_precision_loss)]
+        let initial_weights: Vec<f64> = (0..n).map(|i| ((i + 1) as f64).log2()).collect();
+
+        let mut tree = MutableTree::new(initial_weights);
+
+        for iteration in 0..5 {
+            // Equalize: move all to range 1
+            for i in 0..n {
+                tree.update(i, 0.0);
+            }
+            assert_eq!(tree.active_count(), n, "Iteration {iteration} equalize");
+
+            // Diversify: spread across ranges
+            for i in 0..n {
+                let power = i % 8;
+                tree.update(i, f64::from(1u32 << power).log2());
+            }
+            assert_eq!(tree.active_count(), n, "Iteration {iteration} diversify");
+        }
+
+        // Final state should be valid
+        assert_eq!(tree.active_count(), n);
     }
 }

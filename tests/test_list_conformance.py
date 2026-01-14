@@ -69,7 +69,6 @@ class WeightListModel:
         return sum(1 for w in self.weights if abs(w - weight) < 1e-10)
 
 
-
 class SamplerListConformance(RuleBasedStateMachine):
     """Stateful test comparing DynamicSampler to WeightListModel."""
 
@@ -85,14 +84,16 @@ class SamplerListConformance(RuleBasedStateMachine):
     )
     def init_sampler(self, weights: list[float]) -> None:
         from dynamic_random_sampler import DynamicSampler
+
         self.model = WeightListModel(weights)
         self.sampler = DynamicSampler(weights)
 
     @invariant()
     def lengths_match(self) -> None:
         if self.model is not None:
-            assert len(self.sampler) == len(self.model), \
+            assert len(self.sampler) == len(self.model), (
                 f"Length mismatch: sampler={len(self.sampler)}, model={len(self.model)}"
+            )
 
     @invariant()
     def weights_match(self) -> None:
@@ -130,8 +131,9 @@ class SamplerListConformance(RuleBasedStateMachine):
 
         # Both should error or both should succeed
         if model_error is not None:
-            assert sampler_error is not None, \
+            assert sampler_error is not None, (
                 f"Model raised IndexError but sampler returned {sampler_result}"
+            )
         else:
             assert sampler_error is None, (
                 f"Sampler raised IndexError but model returned {model_result}"
@@ -141,8 +143,10 @@ class SamplerListConformance(RuleBasedStateMachine):
                 f"getitem mismatch: sampler={sampler_result}, model={model_result}"
             )
 
-    @rule(index=st.integers(min_value=-20, max_value=20),
-          weight=st.floats(min_value=0.0, max_value=100.0))
+    @rule(
+        index=st.integers(min_value=-20, max_value=20),
+        weight=st.floats(min_value=0.0, max_value=100.0),
+    )
     def set_item(self, index: int, weight: float) -> None:
         if self.model is None:
             return
@@ -160,11 +164,13 @@ class SamplerListConformance(RuleBasedStateMachine):
             sampler_error = e
 
         if model_error is not None:
-            assert sampler_error is not None, \
+            assert sampler_error is not None, (
                 "Model raised IndexError but sampler succeeded"
+            )
         else:
-            assert sampler_error is None, \
+            assert sampler_error is None, (
                 "Sampler raised IndexError but model succeeded"
+            )
 
     @rule(weight=st.floats(min_value=0.1, max_value=100.0))
     def append_weight(self, weight: float) -> None:
@@ -262,8 +268,9 @@ class SamplerListConformance(RuleBasedStateMachine):
             assert sampler_error is None, (
                 "Sampler raised ValueError on index but model succeeded"
             )
-            assert sampler_result == model_result, \
+            assert sampler_result == model_result, (
                 f"index result mismatch: sampler={sampler_result}, model={model_result}"
+            )
 
     @rule(weight=st.floats(min_value=0.1, max_value=100.0))
     def count_weight(self, weight: float) -> None:
@@ -271,8 +278,9 @@ class SamplerListConformance(RuleBasedStateMachine):
             return
         model_count = self.model.count(weight)
         sampler_count = self.sampler.count(weight)
-        assert model_count == sampler_count, \
+        assert model_count == sampler_count, (
             f"count mismatch for {weight}: model={model_count}, sampler={sampler_count}"
+        )
 
     @rule()
     def check_list_conversion(self) -> None:

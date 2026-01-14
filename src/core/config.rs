@@ -19,6 +19,7 @@
 ///
 /// Default configuration uses the paper's recommended values of b = 0.4 and d = 32.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::module_name_repetitions)]
 pub struct OptimizationConfig {
     /// Tolerance factor b, where `$0 \leq b < 1$`.
     ///

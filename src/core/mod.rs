@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn test_log_sum_exp_single() {
         // Single weight: sum = weight
-        let result = log_sum_exp([2.0].into_iter());
+        let result = log_sum_exp(std::iter::once(2.0));
         assert!((result - 2.0).abs() < 1e-10);
     }
 
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_log_sum_exp_empty() {
-        let result = log_sum_exp([].into_iter());
+        let result = log_sum_exp(std::iter::empty());
         assert!(result.is_infinite() && result < 0.0);
     }
 

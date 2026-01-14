@@ -61,9 +61,7 @@ def test_all_keys_can_be_sampled(weights: dict[str, float]) -> None:
     weights=weights_dict_strategy, seed=st.integers(min_value=0, max_value=2**32 - 1)
 )
 @settings(max_examples=10, deadline=None)
-def test_sampling_returns_only_valid_keys(
-    weights: dict[str, float], seed: int
-) -> None:
+def test_sampling_returns_only_valid_keys(weights: dict[str, float], seed: int) -> None:
     """Test that sampling only returns keys that exist in the dict."""
     from dynamic_random_sampler import WeightedDict
 
@@ -92,9 +90,7 @@ def test_sampling_correct_after_deletions(
         wd[key] = weight
 
     # Delete some keys
-    keys_to_delete = list(base_weights.keys())[
-        : int(len(base_weights) * delete_ratio)
-    ]
+    keys_to_delete = list(base_weights.keys())[: int(len(base_weights) * delete_ratio)]
     for key in keys_to_delete:
         del wd[key]
 
@@ -147,7 +143,7 @@ def test_chi_squared_distribution() -> None:
     assert chi_squared < 15.0, (
         f"Chi-squared test failed: {chi_squared:.2f} > 15.0. "
         f"Counts: {counts}, Expected proportions: "
-        + ", ".join(f"{k}={v/total:.2%}" for k, v in weights.items())
+        + ", ".join(f"{k}={v / total:.2%}" for k, v in weights.items())
     )
 
 

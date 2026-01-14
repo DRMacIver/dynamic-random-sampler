@@ -96,6 +96,7 @@ impl TimeoutGuard {
 }
 
 /// Assert with detailed context, only in debug-timeout mode.
+#[allow(clippy::module_name_repetitions)]
 #[cfg(feature = "debug-timeout")]
 #[macro_export]
 macro_rules! debug_assert_timeout {
@@ -155,7 +156,7 @@ impl IterationCounter {
         );
 
         // Check timeout periodically (every 1000 iterations)
-        if count.is_multiple_of(1000) {
+        if count % 1000 == 0 {
             self.guard.check_with_context(&format!("iteration {count}"));
         }
     }

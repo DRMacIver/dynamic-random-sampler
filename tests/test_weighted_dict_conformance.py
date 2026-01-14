@@ -84,9 +84,7 @@ key_strategy = st.text(
 weight_strategy = st.floats(min_value=0.0, max_value=1000.0, allow_nan=False)
 
 # Strategy for positive weights (for testing sampling)
-positive_weight_strategy = st.floats(
-    min_value=0.1, max_value=1000.0, allow_nan=False
-)
+positive_weight_strategy = st.floats(min_value=0.1, max_value=1000.0, allow_nan=False)
 
 
 class WeightedDictConformance(RuleBasedStateMachine):
@@ -150,13 +148,9 @@ class WeightedDictConformance(RuleBasedStateMachine):
             wd_error = e
 
         if model_error is not None:
-            assert wd_error is not None, (
-                "Model raised ValueError but wd succeeded"
-            )
+            assert wd_error is not None, "Model raised ValueError but wd succeeded"
         else:
-            assert wd_error is None, (
-                "wd raised ValueError but model succeeded"
-            )
+            assert wd_error is None, "wd raised ValueError but model succeeded"
 
     @rule(key=key_strategy)
     def get_item(self, key: str) -> None:
@@ -210,22 +204,16 @@ class WeightedDictConformance(RuleBasedStateMachine):
             wd_error = e
 
         if model_error is not None:
-            assert wd_error is not None, (
-                "Model raised KeyError but wd succeeded"
-            )
+            assert wd_error is not None, "Model raised KeyError but wd succeeded"
         else:
-            assert wd_error is None, (
-                "wd raised KeyError but model succeeded"
-            )
+            assert wd_error is None, "wd raised KeyError but model succeeded"
 
     @rule(key=key_strategy)
     def check_contains(self, key: str) -> None:
         """Test checking if a key exists."""
         if self.model is None:
             return
-        assert (key in self.wd) == (key in self.model), (
-            f"contains mismatch for {key!r}"
-        )
+        assert (key in self.wd) == (key in self.model), f"contains mismatch for {key!r}"
 
     @rule(key=key_strategy, default=weight_strategy)
     def get_with_default(self, key: str, default: float) -> None:
@@ -295,13 +283,9 @@ class WeightedDictConformance(RuleBasedStateMachine):
             wd_error = e
 
         if model_error is not None:
-            assert wd_error is not None, (
-                "Model raised ValueError but wd succeeded"
-            )
+            assert wd_error is not None, "Model raised ValueError but wd succeeded"
         else:
-            assert wd_error is None, (
-                "wd raised ValueError but model succeeded"
-            )
+            assert wd_error is None, "wd raised ValueError but model succeeded"
             assert wd_result is not None and model_result is not None
             assert abs(wd_result - model_result) < 1e-9, (
                 f"setdefault mismatch: wd={wd_result}, model={model_result}"
@@ -334,9 +318,7 @@ class WeightedDictConformance(RuleBasedStateMachine):
             return
         wd_keys = set(self.wd.keys())
         model_keys = set(self.model.keys())
-        assert wd_keys == model_keys, (
-            f"keys mismatch: wd={wd_keys}, model={model_keys}"
-        )
+        assert wd_keys == model_keys, f"keys mismatch: wd={wd_keys}, model={model_keys}"
 
     @rule()
     def check_values(self) -> None:

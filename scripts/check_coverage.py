@@ -7,7 +7,8 @@ Acceptable uncovered lines:
 - Lines inside debug_assert! macros (only execute when assertions fail)
 
 Usage:
-    cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python scripts/check_coverage.py
+    cargo +nightly llvm-cov report --show-missing-lines 2>&1 | \\
+        python scripts/check_coverage.py
 """
 
 import re
@@ -16,7 +17,7 @@ from pathlib import Path
 
 
 def is_acceptable_uncovered(file_path: str, line_num: int) -> bool:
-    """Check if an uncovered line is acceptable (assertion or known hard-to-test pattern)."""
+    """Check if an uncovered line is acceptable (assertion or hard-to-test)."""
     try:
         path = Path(file_path)
         if not path.exists():
@@ -117,13 +118,16 @@ def check_coverage() -> int:
             # Show the actual line content
             try:
                 lines = Path(file_path).read_text().splitlines()
-                content = lines[line_num - 1].strip() if line_num <= len(lines) else "<unknown>"
+                if line_num <= len(lines):
+                    content = lines[line_num - 1].strip()
+                else:
+                    content = "<unknown>"
             except Exception:
                 content = "<could not read>"
             print(f"  {file_path}:{line_num}")
             print(f"    {content}")
             print()
-        print(f"Total: {len(problems)} line(s) need coverage or conversion to debug_assert!")
+        print(f"Total: {len(problems)} line(s) need coverage or debug_assert!")
         return 1
 
     print("✓ All uncovered lines are in debug assertions or excluded files")
