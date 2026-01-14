@@ -1900,6 +1900,26 @@ mod tests {
     }
 
     #[test]
+    fn test_update_crosses_range_boundary_triggers_propagate_delete() {
+        // Reproducer from Hypothesis: update that moves element to different range
+        // and triggers propagate_delete to reach the base case (recursion past top level).
+        //
+        // weights = [0.5, 495120.14], update index 0 to 304492.81
+        // This causes:
+        // - Element 0 moves from one range to another
+        // - Old range becomes root/empty, triggering propagate_delete
+        // - propagate_delete reaches level_num where level_idx >= levels.len()
+        let mut tree = MutableTree::new(vec![0.5_f64.log2(), 495_120.14_f64.log2()]);
+
+        // Update element 0 to a much larger weight
+        tree.update(0, 304_492.81_f64.log2());
+
+        // Verify the tree is still valid
+        assert_eq!(tree.active_count(), 2);
+        assert!((tree.element_log_weight(0).unwrap() - 304_492.81_f64.log2()).abs() < 1e-10);
+    }
+
+    #[test]
     fn test_shrink_tree_via_weight_changes() {
         // Create a tree and then move all elements to the same range,
         // which should cause major structural changes including propagate_delete
