@@ -1,7 +1,15 @@
 {
   "hooks": {
-    "startup": [
-      "bash .claude/scripts/run-py.sh .claude/scripts/startup-hook.py"
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/scripts/run-py.sh \"$CLAUDE_PROJECT_DIR\"/.claude/scripts/startup-hook.py"
+          }
+        ]
+      }
     ]
   }
 }
