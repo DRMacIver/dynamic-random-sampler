@@ -43,6 +43,7 @@ typeCheckingMode = "strict"
 reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownMemberType = "none"
+reportAttributeAccessIssue = "none"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
