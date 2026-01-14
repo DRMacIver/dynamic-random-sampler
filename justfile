@@ -12,6 +12,7 @@ default:
 
 
 
+
 DOCKER_IMAGE := "dynamic-random-sampler-dev"
 
 
@@ -39,6 +40,7 @@ bench:
 
 
 
+
 build:
     uv run maturin develop
 
@@ -47,8 +49,10 @@ build:
 
 
 
+
 build-release:
     uv run maturin develop --release
+
 
 
 
@@ -66,6 +70,7 @@ coverage:
     cargo +nightly llvm-cov --no-report
     cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
     cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
+
 
 
 
@@ -175,8 +180,10 @@ format-py:
 
 
 
+
 format-rust:
     cargo fmt
+
 
 
 
@@ -190,6 +197,7 @@ install:
 install-rust-tools:
     rustup component add clippy rustfmt llvm-tools-preview
     cargo install cargo-llvm-cov
+
 
 
 
@@ -212,9 +220,11 @@ lint-py:
 
 
 
+
 lint-rust:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
+
 
 
 
@@ -278,6 +288,7 @@ sync-from-template:
 
 
 
+
 test *ARGS:
     uv run pytest {{ARGS}}
 
@@ -290,12 +301,14 @@ test-all:
 
 
 
+
 test-cov:
     uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
 
 
 test-slow:
     uv run pytest -m slow
+
 
 
 

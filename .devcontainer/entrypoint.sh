@@ -100,18 +100,15 @@ GH_WRAPPER
 
     # Set up SSH deploy keys for git push
     # These are permanent (don't expire like tokens) and scoped to specific repos
-    python3 << 'SETUP_SSH_KEYS'
+    # Use uv to run with httpx dependency
+    uv run --quiet --with httpx python3 << 'SETUP_SSH_KEYS'
 import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-try:
-    import httpx
-except ImportError:
-    print("httpx not available, skipping SSH key setup")
-    sys.exit(0)
+import httpx
 
 TOKEN_FILE = Path("/mnt/credentials/github_token.json")
 SSH_PERSISTENT_DIR = Path("/mnt/ssh-keys")
