@@ -66,6 +66,58 @@ if [ "$NEED_CREDS_COPY" = "yes" ]; then
     fi
 fi
 
+# Set up GitHub token from scoped credentials (if available)
+# This uses the GitHub App installation token, NOT user credentials
+# IMPORTANT: We use a credential helper script that reads fresh from the file
+# each time, so token refresh on the host is picked up automatically.
+GH_TOKEN_FILE="/mnt/credentials/github_token.json"
+if [ -f "$GH_TOKEN_FILE" ] && [ -s "$GH_TOKEN_FILE" ]; then
+    # Create a credential helper script that reads token fresh each time
+    mkdir -p ~/.local/bin
+    cat > ~/.local/bin/git-credential-github-token << 'CREDENTIAL_HELPER'
+#!/bin/bash
+# Git credential helper that reads from the mounted token file
+# This ensures we always use the latest token after host-side refresh
+TOKEN_FILE="/mnt/credentials/github_token.json"
+if [ "$1" = "get" ]; then
+    if [ -f "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
+        TOKEN=$(jq -r '.token' "$TOKEN_FILE" 2>/dev/null)
+        if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+            echo "protocol=https"
+            echo "host=github.com"
+            echo "username=x-access-token"
+            echo "password=$TOKEN"
+        fi
+    fi
+fi
+CREDENTIAL_HELPER
+    chmod +x ~/.local/bin/git-credential-github-token
+
+    # Configure git to use our credential helper
+    git config --global credential.helper ""
+    git config --global credential.https://github.com.helper "~/.local/bin/git-credential-github-token"
+
+    # For gh CLI, create a wrapper that reads token fresh each time
+    cat > ~/.local/bin/gh-with-token << 'GH_WRAPPER'
+#!/bin/bash
+# Wrapper that sets GH_TOKEN fresh from file before running gh
+TOKEN_FILE="/mnt/credentials/github_token.json"
+if [ -f "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
+    TOKEN=$(jq -r '.token' "$TOKEN_FILE" 2>/dev/null)
+    if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+        export GH_TOKEN="$TOKEN"
+    fi
+fi
+exec /usr/bin/gh "$@"
+GH_WRAPPER
+    chmod +x ~/.local/bin/gh-with-token
+
+    # Create alias so 'gh' uses the wrapper
+    echo 'alias gh="~/.local/bin/gh-with-token"' >> ~/.bashrc
+
+    echo "GitHub: scoped token configured (reads fresh from file)"
+fi
+
 # Run setup if not done yet (or if post-create.sh changed)
 POST_CREATE="/workspaces/dynamic-random-sampler/.devcontainer/post-create.sh"
 POST_CREATE_HASH=$(sha256sum "$POST_CREATE" 2>/dev/null | cut -d' ' -f1 || echo "none")
