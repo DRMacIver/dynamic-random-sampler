@@ -53,7 +53,8 @@ jobs:
         env:
           CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
-          CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short"
+          # Skip slow tests in cibuildwheel - they're run separately in the test workflow
+          CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short -m 'not slow'"
           CIBW_TEST_REQUIRES: "pytest hypothesis"
           CIBW_BUILD_VERBOSITY: 1
 
