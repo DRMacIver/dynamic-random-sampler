@@ -116,7 +116,10 @@ def update_version(new_version: str) -> None:
     name_pattern = r'^name = "([^"]+)"'
     name_match = re.search(name_pattern, content, flags=re.MULTILINE)
     if not name_match or name_match.group(1) != "dynamic-random-sampler":
-        print(f"Error: pyproject.toml does not belong to dynamic-random-sampler", file=sys.stderr)
+        print(
+            "Error: pyproject.toml does not belong to dynamic-random-sampler",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     content = re.sub(
@@ -128,7 +131,9 @@ def update_version(new_version: str) -> None:
     pyproject_path.write_text(content)
 
     # Update __init__.py if it exists
-    init_path = Path(__file__).parent.parent / "src" / "dynamic_random_sampler" / "__init__.py"
+    init_path = (
+        Path(__file__).parent.parent / "src" / "dynamic_random_sampler" / "__init__.py"
+    )
     if init_path.exists():
         init_content = init_path.read_text()
         init_content = re.sub(

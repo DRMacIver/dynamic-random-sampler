@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Hook that runs at Claude Code startup."""
 
-import os
 import sys
 from pathlib import Path
 
