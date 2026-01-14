@@ -68,7 +68,7 @@ The implementation follows the "First Algorithm" from Section 2 of the paper:
 3. **Level**: Collection of ranges at a given tree level. Ranges with ≥2 children
    propagate to the next level; ranges with 1 child become roots.
 
-4. **DynamicSampler**: Main structure containing:
+4. **SamplerList**: Main structure containing:
    - Element log-weights array
    - Forest of trees (levels 1 to L, where L ≤ log* N + 1)
    - Level tables storing root ranges at each level
@@ -81,7 +81,7 @@ The implementation follows the "First Algorithm" from Section 2 of the paper:
 ### Python Bindings (PyO3)
 
 Thin wrapper exposing:
-- `DynamicSampler(weights: list[float])` - constructor
+- `SamplerList(weights: list[float])` - constructor
 - `sample() -> int` - generate random index
 - `update(index: int, weight: float)` - update weight
 - `__len__() -> int` - number of elements

@@ -1,4 +1,4 @@
-"""Tests for WeightedDict basic operations and sampling distribution."""
+"""Tests for SamplerDict basic operations and sampling distribution."""
 
 import math
 from typing import Any
@@ -11,10 +11,10 @@ import pytest
 
 
 def test_empty_dict() -> None:
-    """Test creating an empty WeightedDict."""
-    from dynamic_random_sampler import WeightedDict
+    """Test creating an empty SamplerDict."""
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     assert len(wd) == 0
     assert list(wd.keys()) == []
     assert list(wd.values()) == []
@@ -23,9 +23,9 @@ def test_empty_dict() -> None:
 
 def test_setitem_and_getitem() -> None:
     """Test setting and getting items."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
     wd["c"] = 3.0
@@ -37,9 +37,9 @@ def test_setitem_and_getitem() -> None:
 
 def test_getitem_missing_key() -> None:
     """Test getting a missing key raises KeyError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     with pytest.raises(KeyError):
@@ -48,9 +48,9 @@ def test_getitem_missing_key() -> None:
 
 def test_setitem_update() -> None:
     """Test updating an existing key's weight."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     assert abs(wd["a"] - 1.0) < 1e-9
 
@@ -61,9 +61,9 @@ def test_setitem_update() -> None:
 
 def test_setitem_zero_weight() -> None:
     """Test setting weight to zero keeps the key but excludes from sampling."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -83,9 +83,9 @@ def test_setitem_zero_weight() -> None:
 
 def test_setitem_invalid_weight() -> None:
     """Test setting invalid weights raises ValueError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
 
     with pytest.raises(ValueError):
         wd["a"] = -1.0
@@ -99,9 +99,9 @@ def test_setitem_invalid_weight() -> None:
 
 def test_delitem() -> None:
     """Test deleting a key."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
     wd["c"] = 3.0
@@ -116,9 +116,9 @@ def test_delitem() -> None:
 
 def test_delitem_missing_key() -> None:
     """Test deleting a missing key raises KeyError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     with pytest.raises(KeyError):
@@ -127,9 +127,9 @@ def test_delitem_missing_key() -> None:
 
 def test_delitem_swap_remove_preserves_weights() -> None:
     """Test that swap-remove correctly preserves other keys' weights."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["first"] = 1.0
     wd["middle"] = 2.0
     wd["last"] = 3.0
@@ -144,9 +144,9 @@ def test_delitem_swap_remove_preserves_weights() -> None:
 
 def test_contains() -> None:
     """Test checking if a key exists."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     assert "a" in wd
@@ -155,9 +155,9 @@ def test_contains() -> None:
 
 def test_contains_zero_weight() -> None:
     """Test that keys with zero weight are still 'in' the dict."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["a"] = 0.0
 
@@ -166,9 +166,9 @@ def test_contains_zero_weight() -> None:
 
 def test_len() -> None:
     """Test getting the number of keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     assert len(wd) == 0
 
     wd["a"] = 1.0
@@ -183,9 +183,9 @@ def test_len() -> None:
 
 def test_iter() -> None:
     """Test iterating over keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
     wd["c"] = 3.0
@@ -196,9 +196,9 @@ def test_iter() -> None:
 
 def test_keys() -> None:
     """Test keys() method."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -207,9 +207,9 @@ def test_keys() -> None:
 
 def test_values() -> None:
     """Test values() method."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -219,9 +219,9 @@ def test_values() -> None:
 
 def test_items() -> None:
     """Test items() method."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -231,9 +231,9 @@ def test_items() -> None:
 
 def test_get_existing() -> None:
     """Test get() with existing key."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     assert wd.get("a") == 1.0
@@ -242,9 +242,9 @@ def test_get_existing() -> None:
 
 def test_get_missing() -> None:
     """Test get() with missing key."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
 
     assert wd.get("missing") is None
     assert wd.get("missing", 99.0) == 99.0
@@ -252,9 +252,9 @@ def test_get_missing() -> None:
 
 def test_pop_existing() -> None:
     """Test pop() removes and returns the weight."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -266,9 +266,9 @@ def test_pop_existing() -> None:
 
 def test_pop_missing() -> None:
     """Test pop() with missing key raises KeyError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
 
     with pytest.raises(KeyError):
         wd.pop("missing")
@@ -276,9 +276,9 @@ def test_pop_missing() -> None:
 
 def test_update() -> None:
     """Test update() method."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     wd.update({"b": 2.0, "c": 3.0})
@@ -290,9 +290,9 @@ def test_update() -> None:
 
 def test_update_overwrites() -> None:
     """Test update() overwrites existing keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     wd.update({"a": 10.0})
@@ -301,9 +301,9 @@ def test_update_overwrites() -> None:
 
 def test_clear() -> None:
     """Test clear() removes all keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 2.0
 
@@ -315,9 +315,9 @@ def test_clear() -> None:
 
 def test_setdefault_missing() -> None:
     """Test setdefault() with missing key."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
 
     result = wd.setdefault("a", 5.0)
     assert abs(result - 5.0) < 1e-9
@@ -326,9 +326,9 @@ def test_setdefault_missing() -> None:
 
 def test_setdefault_existing() -> None:
     """Test setdefault() with existing key returns existing value."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     result = wd.setdefault("a", 99.0)
@@ -343,9 +343,9 @@ def test_setdefault_existing() -> None:
 
 def test_sample_basic() -> None:
     """Test basic sampling returns valid keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["a"] = 1.0
     wd["b"] = 2.0
     wd["c"] = 3.0
@@ -357,9 +357,9 @@ def test_sample_basic() -> None:
 
 def test_sample_empty_raises() -> None:
     """Test sampling from empty dict raises ValueError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
 
     with pytest.raises(ValueError, match="empty"):
         wd.sample()
@@ -367,9 +367,9 @@ def test_sample_empty_raises() -> None:
 
 def test_sample_all_zero_raises() -> None:
     """Test sampling when all weights are zero raises ValueError."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 0.0
     wd["b"] = 0.0
 
@@ -379,9 +379,9 @@ def test_sample_all_zero_raises() -> None:
 
 def test_sample_distribution() -> None:
     """Test that sampling distribution is correct."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     # Weight 7 should be sampled ~70% of the time
     wd["low"] = 1.0
     wd["low2"] = 1.0
@@ -400,9 +400,9 @@ def test_sample_distribution() -> None:
 
 def test_sample_single_key() -> None:
     """Test sampling with single key always returns that key."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["only"] = 1.0
 
     for _ in range(50):
@@ -411,9 +411,9 @@ def test_sample_single_key() -> None:
 
 def test_sample_after_delete() -> None:
     """Test sampling works correctly after deleting keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["a"] = 1.0
     wd["b"] = 100.0  # Dominant
     wd["c"] = 1.0
@@ -429,9 +429,9 @@ def test_sample_after_delete() -> None:
 
 def test_sample_after_update() -> None:
     """Test sampling works correctly after updating weights."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["a"] = 1.0
     wd["b"] = 1.0
 
@@ -452,10 +452,10 @@ def test_sample_after_update() -> None:
 
 def test_seed_affects_sampling() -> None:
     """Test that different seeds produce different results."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd1: Any = WeightedDict(seed=42)
-    wd2: Any = WeightedDict(seed=12345)
+    wd1: Any = SamplerDict(seed=42)
+    wd2: Any = SamplerDict(seed=12345)
 
     for wd in [wd1, wd2]:
         wd["a"] = 1.0
@@ -473,9 +473,9 @@ def test_seed_affects_sampling() -> None:
 
 def test_seed_method() -> None:
     """Test the seed() method for reseeding."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     wd["b"] = 1.0
     wd["c"] = 1.0
@@ -499,9 +499,9 @@ def test_seed_method() -> None:
 
 def test_many_inserts_and_deletes() -> None:
     """Test many inserts and deletes maintain consistency."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
 
     # Insert 100 keys
     for i in range(100):
@@ -523,21 +523,21 @@ def test_many_inserts_and_deletes() -> None:
 
 def test_repr() -> None:
     """Test __repr__ method."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
 
     repr_str = repr(wd)
-    assert "WeightedDict" in repr_str
+    assert "SamplerDict" in repr_str
     assert "a" in repr_str
 
 
 def test_reinsert_after_delete() -> None:
     """Test reinserting a key after deletion."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict()
+    wd: Any = SamplerDict()
     wd["a"] = 1.0
     del wd["a"]
     wd["a"] = 2.0

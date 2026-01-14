@@ -8,7 +8,7 @@ Matias, Vitter, and Ni (1993/2003).
 
 - **O(log* N) sampling**: Expected constant time for all practical N (up to 2^65536)
 - **O(log* N) updates**: Amortized expected time for weight changes
-- **Dynamic operations**: Insert, delete, and update weights without rebuilding
+- **Dynamic operations**: Append, pop, and update weights without rebuilding
 - **Numerically stable**: Handles weights spanning 10^-300 to 10^300
 - **Python bindings**: Easy-to-use Python API via PyO3
 
@@ -31,13 +31,16 @@ just build    # Build the Rust extension
 
 ## Quick Start
 
-### Python
+### SamplerList (list-like interface)
+
+A list of weights with O(log* N) weighted random sampling. Indices are stable -
+elements can only be added at the end (append) or removed from the end (pop).
 
 ```python
-from dynamic_random_sampler import DynamicSampler
+from dynamic_random_sampler import SamplerList
 
-# Create sampler with weights - works like a list of weights
-sampler = DynamicSampler([1.0, 2.0, 3.0])
+# Create sampler with weights
+sampler = SamplerList([1.0, 2.0, 3.0])
 
 # Sample an index (returns 0, 1, or 2 with probabilities 1/6, 2/6, 3/6)
 index = sampler.sample()
@@ -46,30 +49,62 @@ index = sampler.sample()
 weight = sampler[0]     # Get weight at index 0
 sampler[0] = 10.0       # Update weight at index 0
 
-# Add new elements
+# Add and remove elements (at end only - indices stay stable)
 sampler.append(5.0)     # Add weight 5.0 at end
 sampler.extend([1.0, 2.0])  # Add multiple weights
+sampler.pop()           # Remove and return last element
 
-# Delete elements (shifts indices like a list)
-del sampler[1]          # Remove element at index 1
-
-# Soft exclusion (keeps element but excludes from sampling)
-sampler[2] = 0.0        # Element stays at index 2 but won't be sampled
+# Soft exclusion (keeps index but excludes from sampling)
+sampler[2] = 0.0        # Element at index 2 won't be sampled
 
 # Standard list operations
 len(sampler)            # Number of elements
 list(sampler)           # Get all weights as a list
 2.0 in sampler          # Check if weight exists
-sampler.pop()           # Remove and return last element
 sampler.clear()         # Remove all elements
+```
+
+### SamplerDict (dict-like interface)
+
+A dictionary mapping keys to weights with O(log* N) weighted random sampling.
+Supports arbitrary string keys with full dict operations.
+
+```python
+from dynamic_random_sampler import SamplerDict
+
+# Create empty dict (or with seed for reproducibility)
+wd = SamplerDict(seed=12345)
+
+# Set weights for keys
+wd["apple"] = 1.0
+wd["banana"] = 2.0
+wd["cherry"] = 3.0
+
+# Sample a random key (probability proportional to weight)
+key = wd.sample()  # Returns "cherry" most often (weight 3.0)
+
+# Dict-like access
+weight = wd["apple"]    # Get weight
+wd["apple"] = 5.0       # Update weight
+del wd["banana"]        # Delete key
+
+# Standard dict operations
+len(wd)                 # Number of keys
+"apple" in wd           # Check if key exists
+wd.keys()               # List of keys
+wd.values()             # List of weights
+wd.items()              # List of (key, weight) tuples
+wd.get("missing", 0.0)  # Get with default
+wd.pop("apple")         # Remove and return weight
+wd.clear()              # Remove all keys
 ```
 
 ### Statistical Testing
 
-The sampler includes built-in chi-squared testing:
+Both types include built-in chi-squared testing:
 
 ```python
-sampler = DynamicSampler([1.0, 2.0, 3.0])
+sampler = SamplerList([1.0, 2.0, 3.0])
 result = sampler.test_distribution(num_samples=10000)
 print(f"Chi-squared: {result.chi_squared}")
 print(f"P-value: {result.p_value}")

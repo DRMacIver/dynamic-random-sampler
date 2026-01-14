@@ -1,6 +1,6 @@
 """Hypothesis stateful test for list API conformance.
 
-This test verifies that DynamicSampler behaves like a list of weights,
+This test verifies that SamplerList behaves like a list of weights,
 with stable indices (no index-shifting operations).
 """
 
@@ -21,7 +21,7 @@ class WeightListModel:
     """Reference model: a plain Python list of weights.
 
     This is just a list with validation that weights are positive.
-    Uses stable indices like DynamicSampler - only append/pop are allowed.
+    Uses stable indices like SamplerList - only append/pop are allowed.
     """
 
     def __init__(self, weights: list[float]) -> None:
@@ -70,7 +70,7 @@ class WeightListModel:
 
 
 class SamplerListConformance(RuleBasedStateMachine):
-    """Stateful test comparing DynamicSampler to WeightListModel."""
+    """Stateful test comparing SamplerList to WeightListModel."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -83,10 +83,10 @@ class SamplerListConformance(RuleBasedStateMachine):
         )
     )
     def init_sampler(self, weights: list[float]) -> None:
-        from dynamic_random_sampler import DynamicSampler
+        from dynamic_random_sampler import SamplerList
 
         self.model = WeightListModel(weights)
-        self.sampler = DynamicSampler(weights)
+        self.sampler = SamplerList(weights)
 
     @invariant()
     def lengths_match(self) -> None:

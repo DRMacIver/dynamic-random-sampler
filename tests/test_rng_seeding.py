@@ -1,4 +1,4 @@
-"""Tests for RNG seeding and reproducibility in DynamicSampler.
+"""Tests for RNG seeding and reproducibility in SamplerList.
 
 Note: Due to HashMap iteration non-determinism in the Rust implementation,
 exact sequence reproducibility is not guaranteed even with the same seed.
@@ -12,11 +12,11 @@ from typing import Any
 
 def test_seed_affects_sampling() -> None:
     """Test that different seeds produce different results."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     # With different seeds, we should get different distributions
-    sampler1: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0], seed=42)
-    sampler2: Any = DynamicSampler([1.0, 2.0, 3.0, 4.0, 5.0], seed=12345)
+    sampler1: Any = SamplerList([1.0, 2.0, 3.0, 4.0, 5.0], seed=42)
+    sampler2: Any = SamplerList([1.0, 2.0, 3.0, 4.0, 5.0], seed=12345)
 
     samples1 = [sampler1.sample() for _ in range(100)]
     samples2 = [sampler2.sample() for _ in range(100)]
@@ -27,10 +27,10 @@ def test_seed_affects_sampling() -> None:
 
 def test_seed_zero_is_valid() -> None:
     """Test that seed=0 is a valid seed."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     # Should not raise
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0], seed=0)
+    sampler: Any = SamplerList([1.0, 2.0, 3.0], seed=0)
     for _ in range(10):
         result = sampler.sample()
         assert 0 <= result < 3
@@ -38,10 +38,10 @@ def test_seed_zero_is_valid() -> None:
 
 def test_large_seed_value() -> None:
     """Test that large seed values work."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     large_seed = 2**63 - 1  # Max u64
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0], seed=large_seed)
+    sampler: Any = SamplerList([1.0, 2.0, 3.0], seed=large_seed)
     for _ in range(10):
         result = sampler.sample()
         assert 0 <= result < 3
@@ -49,9 +49,9 @@ def test_large_seed_value() -> None:
 
 def test_unseeded_sampler_works() -> None:
     """Test that unseeded (entropy-based) samplers work."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    sampler: Any = SamplerList([1.0, 2.0, 3.0])
     for _ in range(10):
         result = sampler.sample()
         assert 0 <= result < 3
@@ -59,9 +59,9 @@ def test_unseeded_sampler_works() -> None:
 
 def test_reseed_method_exists() -> None:
     """Test that the seed() method exists and can be called."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0], seed=42)
+    sampler: Any = SamplerList([1.0, 2.0, 3.0], seed=42)
 
     # Reseed should not raise
     sampler.seed(99)
@@ -76,9 +76,9 @@ def test_reseed_method_exists() -> None:
 
 def test_distribution_correct_with_seed() -> None:
     """Test that seeded sampler still produces correct distribution."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 1.0, 1.0, 7.0], seed=42)
+    sampler: Any = SamplerList([1.0, 1.0, 1.0, 7.0], seed=42)
 
     # With weights [1, 1, 1, 7], index 3 should be sampled ~70% of the time
     samples = [sampler.sample() for _ in range(1000)]
@@ -90,9 +90,9 @@ def test_distribution_correct_with_seed() -> None:
 
 def test_sampling_after_update() -> None:
     """Test that sampling works correctly after updates with seed."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 1.0, 1.0, 1.0], seed=42)
+    sampler: Any = SamplerList([1.0, 1.0, 1.0, 1.0], seed=42)
 
     # Sample some values
     for _ in range(10):
@@ -111,9 +111,9 @@ def test_sampling_after_update() -> None:
 
 def test_sampling_after_append() -> None:
     """Test that sampling works correctly after append with seed."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 1.0, 1.0], seed=42)
+    sampler: Any = SamplerList([1.0, 1.0, 1.0], seed=42)
 
     # Append a dominant weight
     sampler.append(100.0)
@@ -128,9 +128,9 @@ def test_sampling_after_append() -> None:
 
 def test_sampling_after_pop() -> None:
     """Test that sampling works correctly after pop with seed."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 1.0, 1.0, 1.0], seed=42)
+    sampler: Any = SamplerList([1.0, 1.0, 1.0, 1.0], seed=42)
 
     # Pop three elements from the end
     sampler.pop()  # Now [1.0, 1.0, 1.0] at indices 0,1,2

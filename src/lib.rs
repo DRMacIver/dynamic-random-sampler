@@ -29,7 +29,7 @@ mod python_bindings {
     /// at the end (append) or removed from the end (pop). Setting weight to 0
     /// excludes an element from sampling but keeps its index valid.
     #[pyclass]
-    pub struct DynamicSampler {
+    pub struct SamplerList {
         /// The mutable tree data structure
         tree: MutableTree,
         /// Current logical length (number of elements added minus popped)
@@ -38,7 +38,7 @@ mod python_bindings {
         rng: ChaCha8Rng,
     }
 
-    impl DynamicSampler {
+    impl SamplerList {
         /// Get the weight at an internal tree index.
         fn get_weight_internal(&self, internal_idx: usize) -> f64 {
             self.tree
@@ -127,7 +127,7 @@ mod python_bindings {
     }
 
     #[pymethods]
-    impl DynamicSampler {
+    impl SamplerList {
         /// Create a new sampler from a list of weights.
         ///
         /// Weights must be positive.
@@ -366,7 +366,7 @@ mod python_bindings {
         /// Elements with weight 0 are excluded from sampling.
         ///
         /// Uses the internal RNG. For reproducible results, create the sampler
-        /// with a seed: `DynamicSampler(weights, seed=12345)`.
+        /// with a seed: `SamplerList(weights, seed=12345)`.
         ///
         /// # Errors
         ///
@@ -641,7 +641,7 @@ mod python_bindings {
         }
     }
 
-    /// Iterator over weights in a `DynamicSampler`.
+    /// Iterator over weights in a `SamplerList`.
     #[pyclass]
     pub struct PyWeightIterator {
         weights: Vec<f64>,
@@ -666,7 +666,7 @@ mod python_bindings {
     }
 
     // =========================================================================
-    // WeightedDict - A dict-like type with weighted random sampling
+    // SamplerDict - A dict-like type with weighted random sampling
     // =========================================================================
 
     use std::collections::HashMap;
@@ -682,10 +682,10 @@ mod python_bindings {
     /// # Implementation
     ///
     /// Uses a `Vec<K>` for keys, `HashMap<K, usize>` for key->index lookup,
-    /// and `DynamicSampler` for weights. Deletion uses swap-remove to maintain
+    /// and `SamplerList` for weights. Deletion uses swap-remove to maintain
     /// O(log* N) sampling performance.
     #[pyclass]
-    pub struct WeightedDict {
+    pub struct SamplerDict {
         /// Keys stored in order (with swap-remove on delete)
         keys: Vec<String>,
         /// Maps keys to their index in the vec
@@ -696,7 +696,7 @@ mod python_bindings {
         rng: ChaCha8Rng,
     }
 
-    impl WeightedDict {
+    impl SamplerDict {
         /// Get the weight at an internal index.
         fn get_weight_internal(&self, internal_idx: usize) -> f64 {
             self.tree
@@ -727,8 +727,8 @@ mod python_bindings {
     }
 
     #[pymethods]
-    impl WeightedDict {
-        /// Create a new empty `WeightedDict`.
+    impl SamplerDict {
+        /// Create a new empty `SamplerDict`.
         ///
         /// # Arguments
         ///
@@ -978,11 +978,11 @@ mod python_bindings {
                 .enumerate()
                 .map(|(i, k)| format!("{:?}: {}", k, self.get_weight_internal(i)))
                 .collect();
-            format!("WeightedDict({{{}}})", items.join(", "))
+            format!("SamplerDict({{{}}})", items.join(", "))
         }
     }
 
-    /// Iterator over keys in a `WeightedDict`.
+    /// Iterator over keys in a `SamplerDict`.
     #[pyclass]
     pub struct PyKeyIterator {
         keys: Vec<String>,
@@ -1010,10 +1010,10 @@ mod python_bindings {
     #[pymodule]
     #[allow(clippy::missing_errors_doc)]
     pub fn dynamic_random_sampler(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> PyResult<()> {
-        m.add_class::<DynamicSampler>()?;
+        m.add_class::<SamplerList>()?;
         m.add_class::<PyChiSquaredResult>()?;
         m.add_class::<PyWeightIterator>()?;
-        m.add_class::<WeightedDict>()?;
+        m.add_class::<SamplerDict>()?;
         m.add_class::<PyKeyIterator>()?;
         Ok(())
     }

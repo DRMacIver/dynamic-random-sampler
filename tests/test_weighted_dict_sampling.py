@@ -1,4 +1,4 @@
-"""Hypothesis-based tests for WeightedDict sampling distribution correctness.
+"""Hypothesis-based tests for SamplerDict sampling distribution correctness.
 
 Tests verify that the sampling distribution matches the expected probability
 distribution based on weights.
@@ -32,9 +32,9 @@ def test_all_keys_can_be_sampled(weights: dict[str, float]) -> None:
     Uses enough samples to statistically ensure all keys are hit with high
     probability, even for keys with relatively small weights.
     """
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     for key, weight in weights.items():
         wd[key] = weight
 
@@ -63,9 +63,9 @@ def test_all_keys_can_be_sampled(weights: dict[str, float]) -> None:
 @settings(max_examples=10, deadline=None)
 def test_sampling_returns_only_valid_keys(weights: dict[str, float], seed: int) -> None:
     """Test that sampling only returns keys that exist in the dict."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=seed)
+    wd: Any = SamplerDict(seed=seed)
     for key, weight in weights.items():
         wd[key] = weight
 
@@ -83,9 +83,9 @@ def test_sampling_correct_after_deletions(
     base_weights: dict[str, float], delete_ratio: float
 ) -> None:
     """Test that sampling is correct after deleting some keys."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     for key, weight in base_weights.items():
         wd[key] = weight
 
@@ -113,9 +113,9 @@ def test_chi_squared_distribution() -> None:
     Uses chi-squared test to verify the observed distribution matches
     the expected probability distribution.
     """
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=12345)
+    wd: Any = SamplerDict(seed=12345)
 
     # Set up weights with clear expected distribution
     weights = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
@@ -149,9 +149,9 @@ def test_chi_squared_distribution() -> None:
 
 def test_zero_weight_excluded() -> None:
     """Test that keys with zero weight are never sampled."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["positive"] = 1.0
     wd["zero"] = 0.0
 
@@ -161,9 +161,9 @@ def test_zero_weight_excluded() -> None:
 
 def test_extreme_weight_ratio() -> None:
     """Test sampling with very different weight magnitudes."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["tiny"] = 0.001
     wd["huge"] = 1000.0
 
@@ -181,9 +181,9 @@ def test_extreme_weight_ratio() -> None:
 
 def test_sampling_after_weight_update() -> None:
     """Test that weight updates correctly affect sampling distribution."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
     wd["a"] = 1.0
     wd["b"] = 1.0
 
@@ -210,9 +210,9 @@ def test_sampling_after_weight_update() -> None:
 
 def test_swap_remove_preserves_distribution() -> None:
     """Test that swap-remove doesn't corrupt the sampling distribution."""
-    from dynamic_random_sampler import WeightedDict
+    from dynamic_random_sampler import SamplerDict
 
-    wd: Any = WeightedDict(seed=42)
+    wd: Any = SamplerDict(seed=42)
 
     # Insert with known weights
     wd["keep_1"] = 10.0

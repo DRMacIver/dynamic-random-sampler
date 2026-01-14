@@ -7,9 +7,9 @@ import pytest
 
 def test_chi_squared_result_attributes() -> None:
     """Verify ChiSquaredResult has expected attributes."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    sampler: Any = SamplerList([1.0, 2.0, 3.0])
     result = sampler.test_distribution(1000)
 
     assert hasattr(result, "chi_squared")
@@ -21,9 +21,9 @@ def test_chi_squared_result_attributes() -> None:
 
 def test_chi_squared_result_values() -> None:
     """Verify ChiSquaredResult contains valid values."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0, 3.0])
+    sampler: Any = SamplerList([1.0, 2.0, 3.0])
     result = sampler.test_distribution(1000)
 
     assert result.chi_squared >= 0.0
@@ -38,7 +38,7 @@ def test_chi_squared_passes_for_correct_distribution() -> None:
     With 10000 samples, the sampler should produce a distribution that
     passes the chi-squared test at the 0.01 significance level.
     """
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     # Test with various weight distributions
     test_cases = [
@@ -49,7 +49,7 @@ def test_chi_squared_passes_for_correct_distribution() -> None:
     ]
 
     for weights in test_cases:
-        sampler: Any = DynamicSampler(weights)
+        sampler: Any = SamplerList(weights)
         result = sampler.test_distribution(10000)
 
         # Test should pass at 0.01 level (99% confidence)
@@ -61,9 +61,9 @@ def test_chi_squared_passes_for_correct_distribution() -> None:
 
 def test_chi_squared_repr() -> None:
     """Verify ChiSquaredResult has a useful repr."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0])
+    sampler: Any = SamplerList([1.0, 2.0])
     result = sampler.test_distribution(100)
 
     repr_str = repr(result)
@@ -74,9 +74,9 @@ def test_chi_squared_repr() -> None:
 
 def test_chi_squared_default_num_samples() -> None:
     """Verify default num_samples is 10000."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0])
+    sampler: Any = SamplerList([1.0, 2.0])
     result = sampler.test_distribution()
 
     assert result.num_samples == 10000
@@ -84,9 +84,9 @@ def test_chi_squared_default_num_samples() -> None:
 
 def test_chi_squared_custom_num_samples() -> None:
     """Verify custom num_samples works."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler([1.0, 2.0])
+    sampler: Any = SamplerList([1.0, 2.0])
 
     for n in [100, 500, 5000]:
         result = sampler.test_distribution(n)
@@ -109,10 +109,10 @@ def test_chi_squared_high_confidence() -> None:
     This test uses 100000 samples and should be very unlikely to fail
     if the distribution is correct (< 0.1% chance of false negative).
     """
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     weights = [1.0, 2.0, 4.0, 8.0, 16.0]
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     result = sampler.test_distribution(100000)
 
     # With 100k samples, even small deviations would be detected

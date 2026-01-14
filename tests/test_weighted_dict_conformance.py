@@ -1,6 +1,6 @@
-"""Hypothesis stateful test for WeightedDict dict API conformance.
+"""Hypothesis stateful test for SamplerDict dict API conformance.
 
-This test verifies that WeightedDict behaves like a dict[str, float],
+This test verifies that SamplerDict behaves like a dict[str, float],
 with the additional constraint that weights must be non-negative.
 """
 
@@ -87,8 +87,8 @@ weight_strategy = st.floats(min_value=0.0, max_value=1000.0, allow_nan=False)
 positive_weight_strategy = st.floats(min_value=0.1, max_value=1000.0, allow_nan=False)
 
 
-class WeightedDictConformance(RuleBasedStateMachine):
-    """Stateful test comparing WeightedDict to WeightDictModel."""
+class SamplerDictConformance(RuleBasedStateMachine):
+    """Stateful test comparing SamplerDict to WeightDictModel."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -97,10 +97,10 @@ class WeightedDictConformance(RuleBasedStateMachine):
 
     @initialize()
     def init_dict(self) -> None:
-        from dynamic_random_sampler import WeightedDict
+        from dynamic_random_sampler import SamplerDict
 
         self.model = WeightDictModel()
-        self.wd = WeightedDict(seed=42)
+        self.wd = SamplerDict(seed=42)
 
     @invariant()
     def lengths_match(self) -> None:
@@ -351,7 +351,7 @@ class WeightedDictConformance(RuleBasedStateMachine):
 
 # Configure and run the test
 @pytest.mark.slow
-class TestWeightedDictConformance(WeightedDictConformance.TestCase):  # pyright: ignore[reportUntypedBaseClass]
+class TestSamplerDictConformance(SamplerDictConformance.TestCase):  # pyright: ignore[reportUntypedBaseClass]
     """Stateful test class - slow due to comprehensive state exploration."""
 
     settings = settings(max_examples=100, stateful_step_count=50)

@@ -27,9 +27,9 @@ from hypothesis.stateful import (
 @settings(deadline=None)
 def test_construction_with_positive_weights(weights: list[float]) -> None:
     """Any list of positive weights should construct successfully."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     assert len(sampler) == len(weights)
 
 
@@ -37,9 +37,9 @@ def test_construction_with_positive_weights(weights: list[float]) -> None:
 @settings(deadline=None)
 def test_weights_are_preserved(weights: list[float]) -> None:
     """Weights should be retrievable after construction."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     for i, expected in enumerate(weights):
         actual = sampler[i]
         # Allow for floating point imprecision from log2/exp2 conversion
@@ -50,9 +50,9 @@ def test_weights_are_preserved(weights: list[float]) -> None:
 @settings(max_examples=50, deadline=None)
 def test_sample_returns_valid_indices(weights: list[float]) -> None:
     """Sample should always return a valid index."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     for _ in range(100):
         idx = sampler.sample()
         assert 0 <= idx < len(weights)
@@ -68,11 +68,11 @@ def test_update_changes_weight(
     weights: list[float], index: int, new_weight: float
 ) -> None:
     """Updating a weight should change the stored weight."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     assume(index < len(weights))
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     sampler[index] = new_weight
     actual = sampler[index]
     assert abs(actual - new_weight) / max(new_weight, 1e-10) < 1e-10
@@ -88,11 +88,11 @@ def test_update_preserves_other_weights(
     weights: list[float], index: int, new_weight: float
 ) -> None:
     """Updating one weight should not affect other weights."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     assume(index < len(weights))
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     sampler[index] = new_weight
 
     for i, expected in enumerate(weights):
@@ -112,8 +112,8 @@ indices = st.runner().flatmap(
 )
 
 
-class DynamicSamplerStateMachine(RuleBasedStateMachine):
-    """Stateful test machine for the DynamicSampler.
+class SamplerListStateMachine(RuleBasedStateMachine):
+    """Stateful test machine for the SamplerList.
 
     This machine performs many random operations on a sampler and verifies
     invariants hold throughout. At the end, it checks statistical conformance.
@@ -135,9 +135,9 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
     )
     def init_sampler(self, weights: list[float], seed: int) -> None:
         """Initialize the sampler with random weights."""
-        from dynamic_random_sampler import DynamicSampler
+        from dynamic_random_sampler import SamplerList
 
-        self.sampler = DynamicSampler(weights)
+        self.sampler = SamplerList(weights)
         self.weights = list(weights)
         self.sample_counts = Counter()
         self.total_samples = 0
@@ -351,13 +351,13 @@ class DynamicSamplerStateMachine(RuleBasedStateMachine):
 
 # Create the test class that pytest will discover
 @pytest.mark.slow
-class TestDynamicSamplerStateful(DynamicSamplerStateMachine.TestCase):  # pyright: ignore[reportUntypedBaseClass]
+class TestSamplerListStateful(SamplerListStateMachine.TestCase):  # pyright: ignore[reportUntypedBaseClass]
     """Stateful test class - slow due to comprehensive coverage."""
 
     pass
 
 
-TestDynamicSamplerStateful.settings = settings(
+TestSamplerListStateful.settings = settings(
     max_examples=100, stateful_step_count=50, deadline=None
 )
 
@@ -371,7 +371,7 @@ TestDynamicSamplerStateful.settings = settings(
 @settings(max_examples=20, deadline=None)
 def test_dominant_weight_gets_most_samples(data: st.DataObject) -> None:
     """An element with vastly higher weight should get almost all samples."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     n = data.draw(st.integers(min_value=2, max_value=10))
     dominant_idx = data.draw(st.integers(min_value=0, max_value=n - 1))
@@ -380,7 +380,7 @@ def test_dominant_weight_gets_most_samples(data: st.DataObject) -> None:
     weights = [1.0] * n
     weights[dominant_idx] = 10000.0
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
 
     # Take many samples
     counts: Counter[int] = Counter()
@@ -400,9 +400,9 @@ def test_dominant_weight_gets_most_samples(data: st.DataObject) -> None:
 @settings(max_examples=30, deadline=None)
 def test_all_elements_can_be_sampled(weights: list[float]) -> None:
     """With similar weights, all elements should eventually be sampled."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
 
     sampled: set[int] = set()
     # With similar weights, 1000 samples should hit all elements
@@ -433,9 +433,9 @@ def test_updates_followed_by_samples_are_valid(
     initial_weights: list[float], updates: list[tuple[int, float]]
 ) -> None:
     """After any sequence of updates, samples should still be valid."""
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(initial_weights)
+    sampler: Any = SamplerList(initial_weights)
 
     for idx, new_weight in updates:
         if idx < len(initial_weights):
@@ -456,9 +456,9 @@ def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
     Note: We use weights in [1.0, 10.0] range to avoid extreme skew that
     can cause chi-squared tests to be unstable with finite samples.
     """
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
     # Use 10k samples - enough for good statistical power without being too slow
     result = sampler.test_distribution(10000)
 
@@ -481,14 +481,14 @@ def test_extreme_weight_range() -> None:
     Uses the Gumbel-max trick internally which works entirely in log space,
     allowing handling of weight ratios up to 10^300.
     """
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     # Weights spanning 200 orders of magnitude
     # Element 0: 1e-100 (extremely tiny)
     # Element 1: 1.0 (normal)
     # Element 2: 1e100 (extremely large)
     weights = [1e-100, 1.0, 1e100]
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
 
     # Take samples - element 2 should get almost all of them
     counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
@@ -517,7 +517,7 @@ def test_extreme_dominant_weight(data: st.DataObject) -> None:
     Even with weight ratios of 10^100+, the dominant element should get
     effectively all samples.
     """
-    from dynamic_random_sampler import DynamicSampler
+    from dynamic_random_sampler import SamplerList
 
     # Create weights where one dominates by 100+ orders of magnitude
     n = data.draw(st.integers(min_value=2, max_value=5))
@@ -527,7 +527,7 @@ def test_extreme_dominant_weight(data: st.DataObject) -> None:
     weights = [1.0] * n
     weights[dominant_idx] = 1e100  # Dominant by 100 orders of magnitude
 
-    sampler: Any = DynamicSampler(weights)
+    sampler: Any = SamplerList(weights)
 
     # All samples should go to the dominant element
     for _ in range(100):
