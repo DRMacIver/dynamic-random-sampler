@@ -59,9 +59,27 @@ class LintVisitor(cst.CSTVisitor):
         line, col = self._get_position(node)
         self.errors.append(LintError(self.file, line, col, rule, message))
 
+    def _is_hypothesis_stateful_class(self, node: cst.ClassDef) -> bool:
+        """Check if class inherits from RuleBasedStateMachine or *.TestCase."""
+        for base in node.bases:
+            if isinstance(base.value, cst.Name):
+                if base.value.value == "RuleBasedStateMachine":
+                    return True
+            elif isinstance(base.value, cst.Attribute):
+                # Allow RuleBasedStateMachine or *.TestCase (Hypothesis pattern)
+                attr_name = base.value.attr.value
+                if attr_name in ("RuleBasedStateMachine", "TestCase"):
+                    return True
+        return False
+
     def visit_ClassDef(self, node: cst.ClassDef) -> bool:
-        # Rule 1: No class-based tests
-        if self._is_test_file and node.name.value.startswith("Test"):
+        # Rule 1: No class-based tests (except Hypothesis stateful tests)
+        is_test_class = (
+            self._is_test_file
+            and node.name.value.startswith("Test")
+            and not self._is_hypothesis_stateful_class(node)
+        )
+        if is_test_class:
             self._add_error(
                 node,
                 "no-class-tests",
@@ -108,8 +126,8 @@ class LintVisitor(cst.CSTVisitor):
         return False
 
     def visit_Import(self, node: cst.Import) -> bool:
-        # Rule 2: No imports inside functions
-        if self._function_depth > 0:
+        # Rule 2: No imports inside functions (except in test files)
+        if self._function_depth > 0 and not self._is_test_file:
             self._add_error(
                 node,
                 "import-in-function",
@@ -118,8 +136,8 @@ class LintVisitor(cst.CSTVisitor):
         return True
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> bool:
-        # Rule 2: No imports inside functions
-        if self._function_depth > 0:
+        # Rule 2: No imports inside functions (except in test files)
+        if self._function_depth > 0 and not self._is_test_file:
             self._add_error(
                 node,
                 "import-in-function",
