@@ -67,3 +67,9 @@ After ideation:
 - Consider the effort-to-value ratio
 - Don't create duplicate issues
 - Group related work with dependencies when appropriate
+
+## Out of Scope
+
+The following should NOT be generated as ideas during ideation:
+
+- **New language templates** (e.g., Go, Java, Ruby, etc.) - Adding new language support is a significant undertaking that should only be done when explicitly requested by the user. The current templates (Python, TypeScript, Rust, C++, and hybrids) cover the primary use cases.

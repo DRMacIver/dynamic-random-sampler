@@ -19,30 +19,10 @@ fi
 # Update Claude Code and beads to latest (installed in Dockerfile, this ensures latest version)
 sudo npm install -g @anthropic-ai/claude-code @beads/bd || true
 
-# Set up uv to use a venv in $HOME to avoid conflicts with host .venv
-export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/$(basename "$PWD")"
-echo 'export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/$(basename "$PWD")"' >> ~/.bashrc
-
-# Ensure cargo is in PATH for this script
-export PATH="$HOME/.cargo/bin:$PATH"
-
-# Install profiling tools (samply for CPU profiling)
-echo "Installing samply profiler..."
-cargo install --locked samply 2>/dev/null || true
-
-# Install cargo-criterion for nicer benchmark output
-echo "Installing cargo-criterion..."
-cargo install --locked cargo-criterion 2>/dev/null || true
-
 # Install Python project dependencies
+# Note: .venv is a volume mount, isolated from host
 if [ -f pyproject.toml ]; then
     uv sync
-fi
-
-# Build Rust extension if Cargo.toml exists
-if [ -f Cargo.toml ]; then
-    echo "Building Rust extension with maturin..."
-    maturin develop || true
 fi
 
 # Initialize beads if not already done

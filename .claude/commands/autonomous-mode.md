@@ -33,6 +33,10 @@ iteration: 0
 last_issue_change_iteration: 0
 issue_snapshot: []
 ---
+
+# Session Log
+
+(Session log will be maintained below during the session)
 ```
 
 ## Loop Behavior
@@ -45,6 +49,38 @@ Once setup is complete, the autonomous loop will:
 4. **Close completed issues**: Use `bd close <id>` when work is done
 5. **Ideate if empty**: If no issues exist, run `/ideate` to generate new work
 6. **Repeat**: Continue until stopping conditions are met
+
+## Session Tracking
+
+During the session, maintain a log in `.claude/autonomous-session.local.md`:
+
+### After Each Issue
+
+When you complete or update an issue, log it:
+
+```markdown
+## Issue: <issue-id>
+- **Status**: completed/blocked/skipped
+- **Work Done**: Brief description
+- **Commits**: List commit hashes if any
+- **Quality Gates**: pass/fail
+```
+
+### After Each Quality Gate Run
+
+Log the result:
+
+```markdown
+### Quality Gate Run (iteration N)
+- **Result**: pass/fail
+- **Issues**: Any failures noted
+```
+
+### Increment Counters
+
+Update the YAML frontmatter:
+- `iteration`: Increment after each work unit
+- `last_issue_change_iteration`: Update when an issue is created or closed
 
 ## Stopping Conditions
 
@@ -63,6 +99,7 @@ While in autonomous mode:
 - **Commit often**: Make small, logical commits after each piece of work
 - **Track everything**: Add discovered issues to beads immediately
 - **Run quality checks**: Ensure quality gates pass before moving on
+- **Verify goals**: For substantial work, run `/goal-verify` before closing
 - **Document blockers**: If stuck, document why and move to the next issue
 
 ## Exiting Autonomous Mode
@@ -76,6 +113,49 @@ To exit properly, you must either:
    "I have completed all work that I can and require human input to proceed."
 
 This phrase allows the stop hook to let you exit. Only use it when truly blocked.
+
+## Session Summary (Generate on Exit)
+
+Before exiting, generate a session summary by appending to `.claude/autonomous-session.local.md`:
+
+```markdown
+---
+
+# Session Summary
+
+**Duration**: <start time> to <end time>
+**Exit Reason**: all work complete / staleness / human input required / error
+
+## Issues Worked On
+| Issue ID | Status | Outcome |
+|----------|--------|---------|
+| xxx-123  | closed | Description of what was done |
+| xxx-456  | open   | Blocked because... |
+
+## Commits Made
+```bash
+git log --oneline <first-commit>..HEAD
+```
+
+## Quality Gate History
+- Total runs: N
+- Passes: N
+- Failures: N
+
+## Metrics
+- **Iterations**: N
+- **Issues Closed**: N
+- **Issues Created**: N
+- **Staleness Events**: N (iterations without progress)
+
+## Notes
+Any observations, patterns, or suggestions for future sessions.
+```
+
+Run this command to get commits made during session:
+```bash
+git log --oneline --since="<started_at timestamp>"
+```
 
 ## Starting the Loop
 

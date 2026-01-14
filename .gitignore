@@ -48,3 +48,9 @@ Cargo.lock
 # Beads lock/socket files
 .beads/*.sock*
 .beads/*.lock*
+
+# GitHub credentials (never commit)
+.devcontainer/.credentials/
+
+# Added by template sync
+.claude/*.local
