@@ -11,6 +11,35 @@ from typing import Any
 import pytest
 
 # =============================================================================
+# Construction Tests
+# =============================================================================
+
+
+def test_empty_weights_rejected() -> None:
+    """Verify empty weight list is rejected."""
+    from dynamic_random_sampler import SamplerList
+
+    with pytest.raises(ValueError):
+        SamplerList([])
+
+
+def test_negative_weights_rejected() -> None:
+    """Verify negative weights are rejected during construction."""
+    from dynamic_random_sampler import SamplerList
+
+    with pytest.raises(ValueError):
+        SamplerList([1.0, -1.0])
+
+
+def test_zero_weight_rejected_in_construction() -> None:
+    """Verify zero weights are rejected during construction."""
+    from dynamic_random_sampler import SamplerList
+
+    with pytest.raises(ValueError):
+        SamplerList([1.0, 0.0])
+
+
+# =============================================================================
 # Item Access Tests (__getitem__, __setitem__) - Single Index
 # =============================================================================
 
