@@ -183,19 +183,21 @@ try:
 except (subprocess.CalledProcessError, IndexError):
     pass
 
-# Register deploy key on each repo
+# Register deploy key on each repo (with write access)
 pub_key_content = public_key.read_text().strip()
+key_title = "Devcontainer (auto-generated)"
 for repo in repos:
-    url = f"https://api.github.com/repos/{owner}/{repo}/keys"
+    base_url = f"https://api.github.com/repos/{owner}/{repo}/keys"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
     try:
         response = httpx.post(
-            url,
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github+json",
-            },
+            base_url,
+            headers=headers,
             json={
-                "title": "Devcontainer (auto-generated)",
+                "title": key_title,
                 "key": pub_key_content,
                 "read_only": False,
             },
@@ -204,7 +206,49 @@ for repo in repos:
         if response.status_code == 201:
             print(f"SSH: added deploy key to {repo}")
         elif response.status_code == 422:
-            print(f"SSH: deploy key already exists on {repo}")
+            # Key already exists - check if it has write access
+            list_response = httpx.get(base_url, headers=headers, timeout=30)
+            if list_response.status_code == 200:
+                keys = list_response.json()
+                for key in keys:
+                    if key.get("title") == key_title:
+                        if not key.get("read_only", True):
+                            # Already has write access, nothing to do
+                            print(f"SSH: deploy key on {repo} already has write access")
+                        else:
+                            # Read-only, need to replace it
+                            key_id = key.get("id")
+                            del_response = httpx.delete(
+                                f"{base_url}/{key_id}",
+                                headers=headers,
+                                timeout=30,
+                            )
+                            if del_response.status_code == 204:
+                                re_add = httpx.post(
+                                    base_url,
+                                    headers=headers,
+                                    json={
+                                        "title": key_title,
+                                        "key": pub_key_content,
+                                        "read_only": False,
+                                    },
+                                    timeout=30,
+                                )
+                                if re_add.status_code == 201:
+                                    print(f"SSH: replaced deploy key on {repo} (now with write access)")
+                                else:
+                                    print(f"ERROR: failed to re-add key to {repo}: {re_add.status_code}")
+                                    sys.exit(1)
+                            else:
+                                print(f"ERROR: could not delete old key from {repo}: {del_response.status_code}")
+                                sys.exit(1)
+                        break
+                else:
+                    print(f"ERROR: deploy key exists on {repo} but couldn't find it by title")
+                    sys.exit(1)
+            else:
+                print(f"ERROR: could not list keys for {repo}: {list_response.status_code}")
+                sys.exit(1)
         else:
             print(f"SSH: could not add key to {repo}: {response.status_code}")
     except Exception as e:
