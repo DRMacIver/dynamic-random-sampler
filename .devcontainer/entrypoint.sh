@@ -113,6 +113,7 @@ import httpx
 TOKEN_FILE = Path("/mnt/credentials/github_token.json")
 SSH_PERSISTENT_DIR = Path("/mnt/ssh-keys")
 SSH_DIR = Path.home() / ".ssh"
+PROJECT_DIR = Path("/workspaces/dynamic-random-sampler")
 
 if not TOKEN_FILE.exists():
     print("No GitHub token file, skipping SSH key setup")
@@ -170,7 +171,8 @@ owner = "DRMacIver"
 try:
     result = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        capture_output=True, text=True, check=True
+        capture_output=True, text=True, check=True,
+        cwd=PROJECT_DIR
     )
     remote_url = result.stdout.strip()
     if "github.com" in remote_url:
@@ -225,7 +227,8 @@ print("SSH: configured for github.com")
 try:
     result = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        capture_output=True, text=True, check=True
+        capture_output=True, text=True, check=True,
+        cwd=PROJECT_DIR
     )
     remote_url = result.stdout.strip()
     # Check if it's an HTTPS GitHub URL
@@ -237,7 +240,8 @@ try:
         ssh_url = f"git@github.com:{path}"
         subprocess.run(
             ["git", "remote", "set-url", "origin", ssh_url],
-            check=True, capture_output=True
+            check=True, capture_output=True,
+            cwd=PROJECT_DIR
         )
         print(f"SSH: converted remote to {ssh_url}")
 except subprocess.CalledProcessError:
