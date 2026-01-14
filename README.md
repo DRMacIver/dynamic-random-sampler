@@ -6,10 +6,10 @@ Matias, Vitter, and Ni (1993/2003).
 
 ## Features
 
-- **O(log* N) sampling**: Expected constant time for all practical N (up to 2^65536)
-- **O(log* N) updates**: Amortized expected time for weight changes
+- **$O(\log^* N)$ sampling**: Expected constant time for all practical $N$ (up to $2^{65536}$)
+- **$O(\log^* N)$ updates**: Amortized expected time for weight changes
 - **Dynamic operations**: Append, pop, and update weights without rebuilding
-- **Numerically stable**: Handles weights spanning 10^-300 to 10^300
+- **Numerically stable**: Handles weights spanning $10^{-300}$ to $10^{300}$
 - **Python bindings**: Easy-to-use Python API via PyO3
 
 ## Installation
@@ -33,7 +33,7 @@ just build    # Build the Rust extension
 
 ### SamplerList (list-like interface)
 
-A list of weights with O(log* N) weighted random sampling. Indices are stable -
+A list of weights with $O(\log^* N)$ weighted random sampling. Indices are stable -
 elements can only be added at the end (append) or removed from the end (pop).
 
 ```python
@@ -66,7 +66,7 @@ sampler.clear()         # Remove all elements
 
 ### SamplerDict (dict-like interface)
 
-A dictionary mapping keys to weights with O(log* N) weighted random sampling.
+A dictionary mapping keys to weights with $O(\log^* N)$ weighted random sampling.
 Supports arbitrary string keys with full dict operations.
 
 ```python
@@ -104,7 +104,7 @@ wd.clear()              # Remove all keys
 The algorithm achieves sub-logarithmic time complexity through a tree structure
 where elements are partitioned by weight ranges. Key optimizations include:
 
-- **O(1) random child access**: Dual Vec+HashMap storage for rejection sampling
+- **$O(1)$ random child access**: Dual Vec+HashMap storage for rejection sampling
 - **Gumbel-max trick**: Log-space sampling without normalization
 - **Weight caching**: Avoid redundant log-sum-exp computations
 - **Lazy propagation**: Small weight changes don't propagate through tree
@@ -115,29 +115,29 @@ where elements are partitioned by weight ranges. Key optimizations include:
 |-----------|------|------|
 | single_sample (uniform) | 1000 | ~198ns |
 | single_sample (power_law) | 1000 | ~370ns |
-| batch_1000 | 1000 | ~199us |
-| construction | 1000 | ~135us |
-| update (same range) | 1000 | ~1.8us |
+| batch_1000 | 1000 | ~199μs |
+| construction | 1000 | ~135μs |
+| update (same range) | 1000 | ~1.8μs |
 | update (cross range) | 1000 | ~750ns |
-| insert | 1000 | ~5.2us |
-| delete | 1000 | ~4.1us |
+| insert | 1000 | ~5.2μs |
+| delete | 1000 | ~4.1μs |
 
 (Measured on development machine)
 
 ## Algorithm Overview
 
-Given N elements with weights w_1, ..., w_N, samples index j with probability
-w_j / sum(w_i).
+Given $N$ elements with weights $w_1, \ldots, w_N$, samples index $j$ with probability
+$w_j / \sum_i w_i$.
 
 ### Key Ideas
 
-1. **Range partitioning**: Elements grouped by weight range R_j = [2^(j-1), 2^j)
-2. **Tree structure**: Non-root ranges (degree >= 2) become elements at next level
-3. **Rejection sampling**: Within each range, accept with probability w/2^j >= 1/2
-4. **Log-space arithmetic**: Weights stored as log2(w) for numerical stability
+1. **Range partitioning**: Elements grouped by weight range $R_j = [2^{j-1}, 2^j)$
+2. **Tree structure**: Non-root ranges (degree $\geq 2$) become elements at next level
+3. **Rejection sampling**: Within each range, accept with probability $w/2^j \geq 1/2$
+4. **Log-space arithmetic**: Weights stored as $\log_2(w)$ for numerical stability
 
-The tree height is bounded by O(log* N), the iterated logarithm, which is <= 5
-for all practical N.
+The tree height is bounded by $O(\log^* N)$, the iterated logarithm, which is $\leq 5$
+for all practical $N$.
 
 See [docs/algorithm.md](docs/algorithm.md) for detailed documentation with
 mathematical notation.
