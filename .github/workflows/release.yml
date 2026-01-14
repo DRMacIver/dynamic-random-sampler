@@ -125,7 +125,7 @@ jobs:
           CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short"
-          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_REQUIRES: "pytest hypothesis"
           CIBW_BUILD_VERBOSITY: 1
 
       - name: Upload wheels
