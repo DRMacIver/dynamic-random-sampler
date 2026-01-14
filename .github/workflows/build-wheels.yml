@@ -1,0 +1,64 @@
+name: Build Wheels
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  build-wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cibw_archs: x86_64
+            cibw_build: "cp312-manylinux*"
+          - os: ubuntu-latest
+            cibw_archs: aarch64
+            cibw_build: "cp312-manylinux*"
+          - os: macos-13
+            cibw_archs: x86_64
+            cibw_build: "cp312-macosx*"
+          - os: macos-14
+            cibw_archs: arm64
+            cibw_build: "cp312-macosx*"
+          - os: windows-latest
+            cibw_archs: AMD64
+            cibw_build: "cp312-win*"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up QEMU (for Linux ARM builds)
+        if: matrix.cibw_archs == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short"
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_BUILD_VERBOSITY: 1
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}
+          path: ./wheelhouse/*.whl
