@@ -16,10 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --group dev
 
       - name: Check if release needed
         id: check
@@ -43,8 +55,117 @@ jobs:
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
 
-  release:
+      - name: Generate CalVer version
+        id: version
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          VERSION=$(uv run python scripts/release.py --version-only)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Next version will be: $VERSION"
+
+  build-wheels:
     needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cibw_archs: x86_64
+            cibw_build: "cp312-manylinux*"
+          - os: ubuntu-latest
+            cibw_archs: aarch64
+            cibw_build: "cp312-manylinux*"
+          - os: macos-13
+            cibw_archs: x86_64
+            cibw_build: "cp312-macosx*"
+          - os: macos-14
+            cibw_archs: arm64
+            cibw_build: "cp312-macosx*"
+          - os: windows-latest
+            cibw_archs: AMD64
+            cibw_build: "cp312-win*"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies and update version
+        run: |
+          uv sync --group dev
+          uv run python scripts/release.py
+        shell: bash
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up QEMU (for Linux ARM builds)
+        if: matrix.cibw_archs == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short"
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_BUILD_VERBOSITY: 1
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}
+          path: ./wheelhouse/*.whl
+
+  build-sdist:
+    needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies and update version
+        run: |
+          uv sync --group dev
+          uv run python scripts/release.py
+
+      - name: Build sdist
+        run: uv build --sdist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: ./dist/*.tar.gz
+
+  release:
+    needs: [check-release, build-wheels, build-sdist]
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -77,12 +198,6 @@ jobs:
       - name: Run tests
         run: uv run pytest --cov --cov-fail-under=100
 
-      - name: Generate CalVer version
-        id: version
-        run: |
-          VERSION=$(uv run python scripts/release.py --version-only)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Update version
         run: uv run python scripts/release.py
 
@@ -92,15 +207,23 @@ jobs:
       - name: Commit version update
         run: |
           git add pyproject.toml uv.lock src/
-          git commit -m "Release ${{ steps.version.outputs.version }}"
+          git commit -m "Release ${{ needs.check-release.outputs.version }}"
 
-      - name: Build package
-        run: uv build
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
 
       - name: Create and push tag
         run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin main "v${{ steps.version.outputs.version }}"
+          git tag "v${{ needs.check-release.outputs.version }}"
+          git push origin main "v${{ needs.check-release.outputs.version }}"
