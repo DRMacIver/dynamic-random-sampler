@@ -98,198 +98,89 @@ exec /usr/bin/gh "$@"
 GH_WRAPPER
     chmod +x ~/.local/bin/gh
 
-    # Set up SSH deploy keys for git push
-    # These are permanent (don't expire like tokens) and scoped to specific repos
-    # Use uv to run with httpx dependency
-    uv run --quiet --with httpx python3 << 'SETUP_SSH_KEYS'
-import json
+    # Set up SSH for git push (deploy key was set up on host by initialize.sh)
+    python3 << 'SETUP_SSH'
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-import httpx
-
-TOKEN_FILE = Path("/mnt/credentials/github_token.json")
-SSH_PERSISTENT_DIR = Path("/mnt/ssh-keys")
-SSH_DIR = Path.home() / ".ssh"
 PROJECT_DIR = Path("/workspaces/dynamic-random-sampler")
+SSH_HOST_DIR = Path("/mnt/credentials/../.ssh")
+SSH_KEY = SSH_HOST_DIR / "devcontainer"
+SSH_DIR = Path.home() / ".ssh"
 
-if not TOKEN_FILE.exists():
-    print("No GitHub token file, skipping SSH key setup")
+if not SSH_KEY.exists():
+    print("SSH: no deploy key found (run 'just develop' from host to set up)")
     sys.exit(0)
 
-try:
-    creds = json.loads(TOKEN_FILE.read_text())
-except json.JSONDecodeError as e:
-    print(f"Invalid JSON in token file: {e}")
-    sys.exit(0)
-
-token = creds.get("token")
-repos = creds.get("repos", [])
-if not token or not repos:
-    print("No token or repos in credentials")
-    sys.exit(0)
-
-# Ensure directories exist
+# Copy SSH key from host mount to container
 SSH_DIR.mkdir(parents=True, exist_ok=True)
 SSH_DIR.chmod(0o700)
-SSH_PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
 
 private_key = SSH_DIR / "devcontainer"
 public_key = SSH_DIR / "devcontainer.pub"
-persistent_private = SSH_PERSISTENT_DIR / "devcontainer"
-persistent_public = SSH_PERSISTENT_DIR / "devcontainer.pub"
 
-# Check for existing keys in persistent storage first
-if persistent_private.exists() and persistent_public.exists():
-    shutil.copy(persistent_private, private_key)
-    shutil.copy(persistent_public, public_key)
-    private_key.chmod(0o600)
-    public_key.chmod(0o644)
-    print("SSH: copied keys from persistent storage")
-elif not private_key.exists():
-    # Generate new key pair
-    result = subprocess.run(
-        ["ssh-keygen", "-t", "ed25519", "-f", str(private_key), "-N", "",
-         "-C", f"devcontainer-{'-'.join(repos)}"],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"SSH keygen failed: {result.stderr}")
-        sys.exit(0)
-    print("SSH: generated new key pair")
-    # Save to persistent storage
-    shutil.copy(private_key, persistent_private)
-    shutil.copy(public_key, persistent_public)
-    persistent_private.chmod(0o600)
-    persistent_public.chmod(0o644)
-    print("SSH: saved to persistent storage")
+shutil.copy(SSH_KEY, private_key)
+shutil.copy(SSH_KEY.with_suffix(".pub"), public_key)
+private_key.chmod(0o600)
+public_key.chmod(0o644)
 
-# Get the owner from git remote
-owner = "DRMacIver"
-try:
-    result = subprocess.run(
-        ["git", "remote", "get-url", "origin"],
-        capture_output=True, text=True, check=True,
-        cwd=PROJECT_DIR
-    )
-    remote_url = result.stdout.strip()
-    if "github.com" in remote_url:
-        if remote_url.startswith("git@"):
-            owner = remote_url.split(":")[-1].split("/")[0]
-        else:
-            owner = remote_url.split("/")[-2]
-except (subprocess.CalledProcessError, IndexError):
-    pass
-
-# Register deploy key on each repo (with write access)
-pub_key_content = public_key.read_text().strip()
-key_title = "Devcontainer (auto-generated)"
-for repo in repos:
-    base_url = f"https://api.github.com/repos/{owner}/{repo}/keys"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    try:
-        response = httpx.post(
-            base_url,
-            headers=headers,
-            json={
-                "title": key_title,
-                "key": pub_key_content,
-                "read_only": False,
-            },
-            timeout=30,
-        )
-        if response.status_code == 201:
-            print(f"SSH: added deploy key to {repo}")
-        elif response.status_code == 422:
-            # Key already exists - check if it has write access
-            # Match by key content (fingerprint), not title
-            list_response = httpx.get(base_url, headers=headers, timeout=30)
-            if list_response.status_code == 200:
-                keys = list_response.json()
-                # Find key by matching the key content
-                for key in keys:
-                    # GitHub returns the key without the comment, so compare just the key part
-                    existing_key = key.get("key", "")
-                    our_key_parts = pub_key_content.split()
-                    if len(our_key_parts) >= 2:
-                        our_key = f"{our_key_parts[0]} {our_key_parts[1]}"
-                        if existing_key == our_key:
-                            if not key.get("read_only", True):
-                                print(f"SSH: deploy key on {repo} already has write access")
-                            else:
-                                key_id = key.get("id")
-                                del_response = httpx.delete(
-                                    f"{base_url}/{key_id}",
-                                    headers=headers,
-                                    timeout=30,
-                                )
-                                if del_response.status_code == 204:
-                                    re_add = httpx.post(
-                                        base_url,
-                                        headers=headers,
-                                        json={
-                                            "title": key_title,
-                                            "key": pub_key_content,
-                                            "read_only": False,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if re_add.status_code == 201:
-                                        print(f"SSH: replaced deploy key on {repo} (now with write access)")
-                                    else:
-                                        print(f"ERROR: failed to re-add key to {repo}: {re_add.status_code}")
-                                        sys.exit(1)
-                                else:
-                                    print(f"ERROR: could not delete old key from {repo}: {del_response.status_code}")
-                                    sys.exit(1)
-                            break
-                else:
-                    print(f"ERROR: deploy key rejected but couldn't find matching key on {repo}")
-                    sys.exit(1)
-            else:
-                print(f"ERROR: could not list keys for {repo}: {list_response.status_code}")
-                sys.exit(1)
-        else:
-            print(f"SSH: could not add key to {repo}: {response.status_code}")
-    except Exception as e:
-        print(f"SSH: error adding key to {repo}: {e}")
-
-# Write SSH config
+# Configure SSH to use the key for GitHub
 ssh_config = SSH_DIR / "config"
-ssh_config_content = (
+ssh_config.write_text(
     "Host github.com\n"
     "    HostName github.com\n"
     "    User git\n"
-    "    IdentityFile " + str(private_key) + "\n"
+    f"    IdentityFile {private_key}\n"
     "    IdentitiesOnly yes\n"
 )
-ssh_config.write_text(ssh_config_content)
 ssh_config.chmod(0o600)
-print("SSH: configured for github.com")
 
-# Set git remote to SSH - we know exactly what it should be
-project_name = PROJECT_DIR.name
-ssh_url = f"git@github.com:{owner}/{project_name}.git"
+# Add github.com to known hosts
+known_hosts = SSH_DIR / "known_hosts"
+result = subprocess.run(
+    ["ssh-keyscan", "github.com"],
+    capture_output=True, text=True
+)
+if result.returncode == 0:
+    with open(known_hosts, "a") as f:
+        f.write(result.stdout)
+
+# Get current remote URL and extract owner/repo
+result = subprocess.run(
+    ["git", "remote", "get-url", "origin"],
+    capture_output=True, text=True,
+    cwd=PROJECT_DIR
+)
+if result.returncode != 0:
+    print(f"ERROR: could not get git remote: {result.stderr}")
+    sys.exit(1)
+
+remote_url = result.stdout.strip()
+match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+if not match:
+    print(f"ERROR: could not parse GitHub URL: {remote_url}")
+    sys.exit(1)
+
+owner, repo = match.groups()
+ssh_url = f"git@github.com:{owner}/{repo}.git"
+
+# Set remote to SSH URL
 result = subprocess.run(
     ["git", "remote", "set-url", "origin", ssh_url],
     capture_output=True, text=True,
     cwd=PROJECT_DIR
 )
 if result.returncode != 0:
-    print(f"ERROR: Failed to set git remote URL: {result.stderr}")
+    print(f"ERROR: could not set git remote: {result.stderr}")
     sys.exit(1)
-print(f"SSH: set remote to {ssh_url}")
-SETUP_SSH_KEYS
 
-    # Add github.com to known hosts
-    ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+print(f"SSH: configured for git push ({ssh_url})")
+SETUP_SSH
 
-    echo "GitHub: credentials configured (SSH for push, token for API)"
+    echo "GitHub: credentials configured"
 fi
 
 # Run setup if not done yet (or if post-create.sh changed)
