@@ -97,23 +97,30 @@ CREDENTIAL_HELPER
     git config --global credential.helper ""
     git config --global credential.https://github.com.helper "~/.local/bin/git-credential-github-token"
 
-    # For gh CLI, create a wrapper that reads token fresh each time
-    cat > ~/.local/bin/gh-with-token << 'GH_WRAPPER'
+    # For gh CLI, create a wrapper script that shadows /usr/bin/gh
+    # Named 'gh' so it's found first in PATH (~/.local/bin is already first)
+    # This works in both interactive and non-interactive shells (unlike aliases)
+    cat > ~/.local/bin/gh << 'GH_WRAPPER'
 #!/bin/bash
 # Wrapper that sets GH_TOKEN fresh from file before running gh
 TOKEN_FILE="/mnt/credentials/github_token.json"
 if [ -f "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
-    TOKEN=$(jq -r '.token' "$TOKEN_FILE" 2>/dev/null)
+    if ! TOKEN=$(jq -r '.token' "$TOKEN_FILE" 2>&1); then
+        echo "WARNING: Failed to parse $TOKEN_FILE: $TOKEN" >&2
+        TOKEN=""
+    fi
     if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
         export GH_TOKEN="$TOKEN"
+    else
+        echo "WARNING: No valid token found in $TOKEN_FILE" >&2
     fi
+elif [ ! -f "$TOKEN_FILE" ]; then
+    echo "WARNING: Token file not found: $TOKEN_FILE" >&2
+    echo "Run 'just develop' from the host to generate a GitHub token" >&2
 fi
 exec /usr/bin/gh "$@"
 GH_WRAPPER
-    chmod +x ~/.local/bin/gh-with-token
-
-    # Create alias so 'gh' uses the wrapper
-    echo 'alias gh="~/.local/bin/gh-with-token"' >> ~/.bashrc
+    chmod +x ~/.local/bin/gh
 
     echo "GitHub: scoped token configured (reads fresh from file)"
 fi

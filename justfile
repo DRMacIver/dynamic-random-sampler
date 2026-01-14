@@ -10,6 +10,7 @@ default:
 
 
 
+
 DOCKER_IMAGE := "dynamic-random-sampler-dev"
 
 
@@ -35,14 +36,17 @@ bench:
 
 
 
+
 build:
     uv run maturin develop
 
 
 
 
+
 build-release:
     uv run maturin develop --release
+
 
 
 
@@ -61,6 +65,7 @@ coverage:
 
 
 
+
 develop *ARGS:
     #!/usr/bin/env bash
     set -e
@@ -72,7 +77,7 @@ develop *ARGS:
     bash .devcontainer/initialize.sh
 
     # Generate GitHub token if GitHub App is configured
-    bash .devcontainer/.scripts/generate-github-token.sh
+    bash .devcontainer/scripts/generate-github-token.sh
 
     # Extract Claude credentials from macOS
     # Claude Code needs two things:
@@ -163,8 +168,10 @@ format-py:
 
 
 
+
 format-rust:
     cargo fmt
+
 
 
 
@@ -176,6 +183,7 @@ install:
 install-rust-tools:
     rustup component add clippy rustfmt llvm-tools-preview
     cargo install cargo-llvm-cov
+
 
 
 
@@ -194,9 +202,11 @@ lint-py:
 
 
 
+
 lint-rust:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
+
 
 
 
@@ -256,6 +266,7 @@ sync-from-template:
 
 
 
+
 test *ARGS:
     uv run pytest {{ARGS}}
 
@@ -266,12 +277,14 @@ test-all:
 
 
 
+
 test-cov:
     uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
 
 
 test-slow:
     uv run pytest -m slow
+
 
 
 

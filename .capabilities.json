@@ -6,15 +6,15 @@
     "readthedocs": "1.0.0"
   },
   "infrastructure": {},
-  "created_at": "2026-01-14T14:17:41.647225+00:00",
-  "updated_at": "2026-01-14T14:17:43.478340+00:00",
+  "created_at": "2026-01-14T14:38:48.271132+00:00",
+  "updated_at": "2026-01-14T14:38:49.577507+00:00",
   "setup_completed": {
-    "python": "2026-01-14T14:17:42.763947+00:00",
-    "pypi-native-wheels": "2026-01-14T14:17:43.055306+00:00",
-    "readthedocs": "2026-01-14T14:17:43.478322+00:00"
+    "python": "2026-01-14T14:38:48.888669+00:00",
+    "pypi-native-wheels": "2026-01-14T14:38:49.105475+00:00",
+    "readthedocs": "2026-01-14T14:38:49.577446+00:00"
   },
   "migrated_from": {
     "template": "python",
-    "commit": "8bc7a40a1f5315d564d472a6c8b0d8310e23f7c6"
+    "commit": "e66e7f9baa7cc868b5be238a2c583c8e225c1041"
   }
 }
