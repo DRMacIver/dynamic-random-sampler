@@ -77,9 +77,6 @@ jobs:
           - os: ubuntu-latest
             cibw_archs: aarch64
             cibw_build: "cp312-manylinux*"
-          - os: macos-13
-            cibw_archs: x86_64
-            cibw_build: "cp312-macosx*"
           - os: macos-14
             cibw_archs: arm64
             cibw_build: "cp312-macosx*"
@@ -125,7 +122,8 @@ jobs:
           CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           # Skip slow tests in cibuildwheel - they're run separately in the test workflow
-          CIBW_TEST_COMMAND: "pytest {project}/tests -x --tb=short -m 'not slow'"
+          # Use double quotes and escape for cross-platform compatibility
+          CIBW_TEST_COMMAND: 'pytest {project}/tests -x --tb=short -m "not slow"'
           CIBW_TEST_REQUIRES: "pytest hypothesis"
           CIBW_BUILD_VERBOSITY: 1
 
