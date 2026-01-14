@@ -223,33 +223,18 @@ ssh_config.write_text(ssh_config_content)
 ssh_config.chmod(0o600)
 print("SSH: configured for github.com")
 
-# Convert HTTPS remote to SSH (if applicable)
-try:
-    result = subprocess.run(
-        ["git", "remote", "get-url", "origin"],
-        capture_output=True, text=True, check=True,
-        cwd=PROJECT_DIR
-    )
-    remote_url = result.stdout.strip()
-    # Check if it's an HTTPS GitHub URL
-    if remote_url.startswith("https://github.com/"):
-        # Convert to SSH: https://github.com/owner/repo.git -> git@github.com:owner/repo.git
-        path = remote_url.replace("https://github.com/", "")
-        if not path.endswith(".git"):
-            path += ".git"
-        ssh_url = f"git@github.com:{path}"
-        subprocess.run(
-            ["git", "remote", "set-url", "origin", ssh_url],
-            check=True, capture_output=True,
-            cwd=PROJECT_DIR
-        )
-        print(f"SSH: converted remote to {ssh_url}")
-    elif remote_url.startswith("git@"):
-        print(f"SSH: remote already using SSH ({remote_url})")
-    else:
-        print(f"SSH: unknown remote format: {remote_url}")
-except subprocess.CalledProcessError as e:
-    print(f"SSH: could not get/set remote: {e.stderr or e}")
+# Set git remote to SSH - we know exactly what it should be
+project_name = PROJECT_DIR.name
+ssh_url = f"git@github.com:{owner}/{project_name}.git"
+result = subprocess.run(
+    ["git", "remote", "set-url", "origin", ssh_url],
+    capture_output=True, text=True,
+    cwd=PROJECT_DIR
+)
+if result.returncode != 0:
+    print(f"ERROR: Failed to set git remote URL: {result.stderr}")
+    sys.exit(1)
+print(f"SSH: set remote to {ssh_url}")
 SETUP_SSH_KEYS
 
     # Add github.com to known hosts
