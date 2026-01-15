@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     jq \
     rsync \
     locales \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up locale
