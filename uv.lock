@@ -205,7 +205,7 @@ wheels = [
 
 [[package]]
 name = "dynamic-random-sampler"
-version = "26.1.14.0"
+version = "26.1.15.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
