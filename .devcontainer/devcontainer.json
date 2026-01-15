@@ -18,5 +18,5 @@
     "source=${localWorkspaceFolderBasename}-.cache,target=${containerWorkspaceFolder}/.cache,type=volume"
   ],
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "remoteUser": "vscode"
+  "remoteUser": "dev"
 }

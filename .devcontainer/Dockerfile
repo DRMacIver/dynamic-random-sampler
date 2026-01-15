@@ -40,8 +40,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @beads/bd @anthropic-ai/claude-code
 
-# Install just (command runner)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+# Install just (command runner) - bundled script to avoid 403 errors from just.systems
+COPY .devcontainer/scripts/install-just.sh /tmp/install-just.sh
+RUN bash /tmp/install-just.sh --to /usr/local/bin && rm /tmp/install-just.sh
 
 # Install uv (Python package manager) and pre-commit
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
