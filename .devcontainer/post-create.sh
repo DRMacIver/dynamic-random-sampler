@@ -16,18 +16,34 @@ if [ -d /mnt/host-ssh ]; then
     chmod 644 ~/.ssh/*.pub 2>/dev/null || true
 fi
 
-# Update Claude Code and beads to latest (installed in Dockerfile, this ensures latest version)
+# Update Claude Code and beads to latest
 sudo npm install -g @anthropic-ai/claude-code @beads/bd || true
+
+# Configure beads
+if [ ! -d .beads ]; then
+    # New project - initialize beads
+    bd init || true
+else
+    # Cloned project - ensure beads is properly configured
+    # Fix repo fingerprint if needed (common after cloning)
+    if bd doctor 2>&1 | grep -q "Repo Fingerprint.*different repository"; then
+        echo "y" | bd migrate --update-repo-id || true
+    fi
+fi
+
+# Always ensure git hooks are installed
+bd hooks install 2>/dev/null || true
+
+# Install pre-commit hooks (includes beads interaction check)
+if [ -f .pre-commit-config.yaml ] && [ -f .githooks/check-beads-interaction.sh ]; then
+    chmod +x .githooks/check-beads-interaction.sh
+    pre-commit install 2>/dev/null || true
+fi
+
+echo "Development environment ready!"
 
 # Install Python project dependencies
 # Note: .venv is a volume mount, isolated from host
 if [ -f pyproject.toml ]; then
-    uv sync
+    uv sync --group dev
 fi
-
-# Initialize beads if not already done
-if [ ! -d .beads ]; then
-    bd init || true
-fi
-
-echo "Development environment ready!"

@@ -2,10 +2,18 @@
 # Container entrypoint - runs setup if needed, then executes command
 set -e
 
+# Fix home directory ownership if needed (handles volume mounts from old vscode user)
+# The dev user has passwordless sudo, so this works even when running as dev
+if [ ! -w "$HOME" ] 2>/dev/null; then
+    echo "Fixing home directory permissions..."
+    sudo mkdir -p "$HOME"
+    sudo chown -R dev:dev "$HOME"
+fi
+
 SETUP_MARKER="$HOME/.container-setup-done"
 
 # Set up environment
-export PATH="/home/vscode/.local/bin:$PATH"
+export PATH="/home/dev/.local/bin:/home/dev/.claude/bin:$PATH"
 
 # Set Claude config directory
 export CLAUDE_CONFIG_DIR="$HOME/.claude"

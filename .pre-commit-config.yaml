@@ -1,0 +1,25 @@
+# Pre-commit configuration
+# See https://pre-commit.com for more information
+# Hooks are installed automatically by post-create.sh
+
+repos:
+  # Local hooks
+  - repo: local
+    hooks:
+      # Require beads interaction on every commit (Claude Code sessions only)
+      - id: beads-interaction
+        name: Check beads interaction
+        entry: .githooks/check-beads-interaction.sh
+        language: script
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # Run bd pre-commit hook for JSONL sync
+      - id: beads-sync
+        name: Beads sync
+        entry: bd hooks run pre-commit
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]

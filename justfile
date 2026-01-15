@@ -7,15 +7,7 @@
 default:
     @just --list
 
-
-
-
-
-
-
-
 DOCKER_IMAGE := "dynamic-random-sampler-dev"
-
 
 _docker-build:
     #!/usr/bin/env bash
@@ -32,39 +24,16 @@ _docker-build:
         echo "$HASH" > "$SENTINEL"
     fi
 
-
 bench:
     cargo criterion
-
-
-
-
-
-
-
 
 build:
     uv run maturin develop
 
-
-
-
-
-
-
-
 build-release:
     uv run maturin develop --release
 
-
-
-
-
-
-
-
 check: lint test-cov
-
 
 clean:
     rm -rf dist/ build/ *.egg-info/ .pytest_cache/ .coverage htmlcov/ .ruff_cache/ .cache/
@@ -74,12 +43,6 @@ coverage:
     cargo +nightly llvm-cov --no-report
     cargo +nightly llvm-cov report --fail-under-functions 100 --ignore-filename-regex "(lib.rs|debug.rs)"
     cargo +nightly llvm-cov report --show-missing-lines 2>&1 | python3 scripts/check_coverage.py
-
-
-
-
-
-
 
 develop *ARGS:
     #!/usr/bin/env bash
@@ -155,11 +118,11 @@ develop *ARGS:
         -v "$(pwd):/workspaces/dynamic-random-sampler" \
         -v "$(pwd)/.devcontainer/.credentials:/mnt/credentials:ro" \
         -v "$(pwd)/.devcontainer/.ssh:/mnt/ssh-keys" \
-        -v "dynamic-random-sampler-home:/home/vscode" \
+        -v "dynamic-random-sampler-home:/home/dev" \
         -v "dynamic-random-sampler-.cache:/workspaces/dynamic-random-sampler/.cache" \
         -e ANTHROPIC_API_KEY= \
         -w /workspaces/dynamic-random-sampler \
-        --user vscode \
+        --user dev \
         --entrypoint /workspaces/dynamic-random-sampler/.devcontainer/entrypoint.sh \
         {{DOCKER_IMAGE}} \
         bash -c "$DOCKER_CMD"
@@ -170,87 +133,60 @@ docs-build:
 docs-serve:
     uv run mkdocs serve
 
-
 format:
     uv run ruff format .
     uv run ruff check --fix .
-
 
 format-py:
     uv run ruff format .
     uv run ruff check --fix .
 
-
-
-
-
-
-
-
 format-rust:
     cargo fmt
-
-
-
-
-
-
-
 
 install:
     uv sync --group dev
 
-
 install-rust-tools:
     rustup component add clippy rustfmt llvm-tools-preview
     cargo install cargo-llvm-cov
-
-
-
-
-
-
-
 
 lint:
     uv run ruff check .
     uv run basedpyright
     uv run python scripts/extra_lints.py
 
-
 lint-py:
     uv run ruff check .
     uv run basedpyright
     uv run python scripts/extra_lints.py
 
-
-
-
-
-
-
-
 lint-rust:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
 
-
-
-
-
-
-
-
 release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Update version
     uv run python scripts/release.py
+    # Update lock file
+    uv lock
+    # Get the version that was set
+    VERSION=$(uv run python scripts/release.py --version-only)
+    # Commit version update
+    git add pyproject.toml uv.lock src/
+    git commit -m "Release $VERSION"
+    # Create and push tag
+    git tag "v$VERSION"
+    git push origin main "v$VERSION"
+    echo "Released v$VERSION - future pushes to main will auto-release"
 
 release-preview:
     uv run python scripts/release.py --dry-run
 
-
 release-version:
     uv run python scripts/release.py --version-only
-
 
 sync-from-template:
     #!/usr/bin/env bash
@@ -293,41 +229,17 @@ sync-from-template:
         claude --append-system-prompt "$SYNC_PROMPT"
     fi
 
-
-
-
-
-
-
-
 test *ARGS:
     uv run pytest {{ARGS}}
-
 
 test-all:
     uv run pytest
 
-
-
-
-
-
-
-
 test-cov:
     uv run pytest --cov --cov-report=term-missing --cov-fail-under=100
-
 
 test-slow:
     uv run pytest -m slow
 
-
-
-
-
-
-
-
 test-v:
     uv run pytest -v
-

@@ -17,6 +17,9 @@ mkdir -p "$SSH_DIR"
 chmod +x "$SCRIPT_DIR/entrypoint.sh" 2>/dev/null || true
 chmod +x "$SCRIPT_DIR/post-create.sh" 2>/dev/null || true
 
+# Ensure Claude Code scripts are executable
+chmod +x "$PROJECT_DIR/.claude/scripts/"*.sh 2>/dev/null || true
+
 # Set up SSH deploy key for git push (using host's gh CLI with full permissions)
 if ! command -v gh &> /dev/null; then
     echo "SSH: gh CLI not found, skipping deploy key setup"
