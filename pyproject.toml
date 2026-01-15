@@ -18,6 +18,13 @@ module-name = "dynamic_random_sampler"
 # maturin develop --features debug-timeout
 # This will cause operations to panic if they exceed 1 second
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
