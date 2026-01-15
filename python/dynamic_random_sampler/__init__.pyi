@@ -6,6 +6,7 @@ by Matias, Vitter, and Ni (1993/2003).
 """
 
 from collections.abc import Iterator
+from typing import overload
 
 __version__: str
 
@@ -16,9 +17,9 @@ class SamplerList:
     with probability w_j / sum(w_i). Supports dynamic weight updates in O(log* N)
     amortized expected time.
 
-    Uses stable indices - indices never shift. Elements can only be added at the
-    end (append) or removed from the end (pop). Setting weight to 0 excludes an
-    element from sampling but keeps its index valid.
+    Supports most list operations including indexing, slicing, append, extend,
+    pop, insert, remove, reverse, sort, and clear. Setting weight to 0 excludes
+    an element from sampling but keeps it in the list.
 
     Examples:
         Basic usage::
@@ -28,22 +29,31 @@ class SamplerList:
             >>> sampler[0] = 10.0  # Update weight dynamically
             >>> sampler[1] = 0  # Exclude index 1 from sampling
 
+        Empty sampler::
+
+            >>> sampler = SamplerList()  # Create empty sampler
+            >>> sampler.append(1.0)
+            >>> sampler.extend([2.0, 3.0])
+
         Reproducible sampling::
 
             >>> sampler = SamplerList([1.0, 2.0, 3.0], seed=42)
             >>> results = [sampler.sample() for _ in range(5)]
     """
 
-    def __init__(self, weights: list[float], seed: int | None = None) -> None:
-        """Create a new sampler from a list of weights.
+    def __init__(
+        self, weights: list[float] | None = None, *, seed: int | None = None
+    ) -> None:
+        """Create a new sampler from an optional list of weights.
 
         Args:
-            weights: List of positive weights. Must not be empty.
-            seed: Optional seed for the random number generator.
+            weights: Optional list of positive weights. If None or empty,
+                creates an empty sampler.
+            seed: Optional seed for the random number generator (keyword-only).
                 If None, uses system entropy.
 
         Raises:
-            ValueError: If weights is empty or contains non-positive values.
+            ValueError: If weights contains non-positive values.
             ValueError: If any weight is infinite or NaN.
         """
         ...
@@ -105,6 +115,47 @@ class SamplerList:
         """
         ...
 
+    def insert(self, index: int, weight: float) -> None:
+        """Insert a weight at the given index.
+
+        Args:
+            index: Index at which to insert. Supports negative indices.
+            weight: Positive weight value.
+
+        Raises:
+            ValueError: If weight is non-positive, infinite, or NaN.
+        """
+        ...
+
+    def remove(self, weight: float) -> None:
+        """Remove the first element with the given weight.
+
+        Uses approximate comparison (tolerance 1e-10).
+
+        Args:
+            weight: Weight value to remove.
+
+        Raises:
+            ValueError: If no element with this weight exists.
+        """
+        ...
+
+    def reverse(self) -> None:
+        """Reverse the order of elements in place."""
+        ...
+
+    def copy(self) -> list[float]:
+        """Return a list copy of all weights."""
+        ...
+
+    def sort(self, *, reverse: bool = False) -> None:
+        """Sort elements in place.
+
+        Args:
+            reverse: If True, sort in descending order (keyword-only).
+        """
+        ...
+
     def clear(self) -> None:
         """Remove all elements."""
         ...
@@ -138,82 +189,64 @@ class SamplerList:
         """
         ...
 
-    def getstate(self) -> bytes:
-        """Get the current state of the random number generator.
-
-        Note:
-            State persistence is not yet fully implemented.
-            Currently returns an empty bytes object.
-            For reproducibility, use construction-time seeding.
-
-        Returns:
-            A bytes object (currently empty placeholder).
-        """
-        ...
-
-    def setstate(self, state: bytes) -> None:
-        """Set the state of the random number generator.
-
-        Note:
-            State persistence is not yet fully implemented.
-
-        Args:
-            state: State bytes from a previous call to getstate().
-
-        Raises:
-            NotImplementedError: Always (not yet implemented).
-        """
-        ...
-
-    def test_distribution(
-        self, num_samples: int = 10000, seed: int | None = None
-    ) -> ChiSquaredResult:
-        """Run a chi-squared goodness-of-fit test on this sampler.
-
-        Takes num_samples samples and tests whether the observed distribution
-        matches the expected distribution based on weights.
-
-        Args:
-            num_samples: Number of samples to take (default: 10000).
-            seed: Optional random seed for reproducibility.
-
-        Returns:
-            A ChiSquaredResult containing the test statistics.
-        """
-        ...
-
     def __len__(self) -> int:
         """Return the number of elements."""
         ...
 
-    def __getitem__(self, index: int) -> float:
-        """Get the weight at the given index.
+    @overload
+    def __getitem__(self, index: int) -> float: ...
+    @overload
+    def __getitem__(self, index: slice) -> list[float]: ...
+    def __getitem__(self, index: int | slice) -> float | list[float]:
+        """Get the weight at the given index or slice.
 
         Supports negative indices like Python lists.
 
         Args:
-            index: Integer index (can be negative).
+            index: Integer index or slice (can be negative).
 
         Returns:
-            Weight value at the index.
+            Weight value at the index, or list of weights for slices.
 
         Raises:
             IndexError: If index is out of bounds.
         """
         ...
 
-    def __setitem__(self, index: int, weight: float) -> None:
-        """Set the weight at the given index.
+    @overload
+    def __setitem__(self, index: int, weight: float) -> None: ...
+    @overload
+    def __setitem__(self, index: slice, weights: list[float]) -> None: ...
+    def __setitem__(
+        self, index: int | slice, weight: float | list[float]
+    ) -> None:
+        """Set the weight at the given index or slice.
 
         Setting weight to 0 excludes the element from sampling
-        but keeps it in the list (indices stay stable).
+        but keeps it in the list.
+
+        For slices, the list may be resized if the replacement
+        has a different length (except for extended slices with step != 1).
 
         Args:
-            index: Integer index (can be negative).
-            weight: New weight value (non-negative).
+            index: Integer index or slice (can be negative).
+            weight: New weight value(s) (non-negative).
 
         Raises:
             ValueError: If weight is negative, infinite, or NaN.
+            IndexError: If index is out of bounds.
+            ValueError: For extended slices with step != 1, if the
+                replacement list has a different length than the slice.
+        """
+        ...
+
+    def __delitem__(self, index: int) -> None:
+        """Delete the element at the given index.
+
+        Args:
+            index: Integer index (can be negative).
+
+        Raises:
             IndexError: If index is out of bounds.
         """
         ...
@@ -245,19 +278,28 @@ class SamplerDict:
             >>> sampler["banana"] = 3.0
             >>> key = sampler.sample()  # Returns "apple" or "banana"
 
+        Initialize with weights::
+
+            >>> sampler = SamplerDict({"a": 1.0, "b": 2.0, "c": 3.0})
+            >>> key = sampler.sample()
+
         With seed for reproducibility::
 
-            >>> sampler = SamplerDict(seed=42)
-            >>> sampler["a"] = 1.0
-            >>> sampler["b"] = 2.0
+            >>> sampler = SamplerDict({"a": 1.0, "b": 2.0}, seed=42)
             >>> key = sampler.sample()
     """
 
-    def __init__(self, seed: int | None = None) -> None:
-        """Create a new empty SamplerDict.
+    def __init__(
+        self,
+        weights: dict[str, float] | None = None,
+        *,
+        seed: int | None = None,
+    ) -> None:
+        """Create a new SamplerDict with optional initial weights.
 
         Args:
-            seed: Optional seed for the random number generator.
+            weights: Optional dictionary of key-weight pairs.
+            seed: Optional seed for the random number generator (keyword-only).
         """
         ...
 
@@ -409,39 +451,4 @@ class SamplerDict:
 
     def __repr__(self) -> str:
         """Return a string representation."""
-        ...
-
-
-class ChiSquaredResult:
-    """Result of a chi-squared goodness-of-fit test.
-
-    Attributes:
-        chi_squared: The chi-squared statistic.
-        degrees_of_freedom: Degrees of freedom (number of categories - 1).
-        p_value: The p-value (probability of observing this or more extreme result).
-        num_samples: Number of samples taken.
-        excluded_count: Number of indices excluded from chi-squared test.
-        unexpected_samples: Number of unexpected samples in excluded indices.
-    """
-
-    chi_squared: float
-    degrees_of_freedom: int
-    p_value: float
-    num_samples: int
-    excluded_count: int
-    unexpected_samples: int
-
-    def passes(self, alpha: float) -> bool:
-        """Check if the test passes at the given significance level.
-
-        A test "passes" if the p-value is greater than alpha, meaning we
-        cannot reject the null hypothesis that the observed distribution
-        matches expected.
-
-        Args:
-            alpha: Significance level (commonly 0.05 or 0.01).
-
-        Returns:
-            True if p_value > alpha.
-        """
         ...

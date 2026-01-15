@@ -6,30 +6,34 @@ Complete API documentation for dynamic-random-sampler.
 
 A dynamic weighted random sampler that behaves like a Python list.
 
-Implements the data structure from "Dynamic Generation of Discrete Random Variates" by Matias, Vitter, and Ni (1993/2003). Uses stable indices - indices never shift. Elements can only be added at the end (`append`) or removed from the end (`pop`). Setting weight to 0 excludes an element from sampling but keeps its index valid.
+Implements the data structure from "Dynamic Generation of Discrete Random Variates" by Matias, Vitter, and Ni (1993/2003). Supports most list operations including indexing, slicing, append, extend, pop, insert, remove, reverse, sort, and clear. Setting weight to 0 excludes an element from sampling but keeps it in the list.
 
 ### Constructor
 
 ```python
-SamplerList(weights: list[float], seed: int | None = None)
+SamplerList(weights: list[float] | None = None, *, seed: int | None = None)
 ```
 
-Create a new sampler from a list of weights.
+Create a new sampler from an optional list of weights.
 
 **Parameters:**
 
-- `weights` - List of positive weights. Must not be empty.
-- `seed` - Optional seed for the random number generator. If `None`, uses system entropy.
+- `weights` - Optional list of positive weights. If `None` or empty, creates an empty sampler.
+- `seed` - Optional seed for the random number generator (keyword-only). If `None`, uses system entropy.
 
 **Raises:**
 
-- `ValueError` - If weights is empty or contains non-positive values
+- `ValueError` - If weights contains non-positive values
 - `ValueError` - If any weight is infinite or NaN
 
 **Example:**
 
 ```python
 from dynamic_random_sampler import SamplerList
+
+# Create empty sampler
+sampler = SamplerList()
+sampler.append(1.0)
 
 # Basic construction
 sampler = SamplerList([1.0, 2.0, 3.0, 4.0])
@@ -136,7 +140,7 @@ __setitem__(slice: slice, weights: list[float]) -> None
 
 Set the weight at the given index or slice.
 
-Setting weight to 0 excludes the element from sampling but keeps it in the list (indices stay stable). For slices, the value must be an iterable of the same length as the slice.
+Setting weight to 0 excludes the element from sampling but keeps it in the list. For slices with step 1, the list will be resized if the replacement has a different length. For extended slices (step != 1), the replacement must have the same length as the slice.
 
 **Parameters:**
 
@@ -149,16 +153,44 @@ Setting weight to 0 excludes the element from sampling but keeps it in the list 
 
 - `ValueError` - If weight is negative, infinite, or NaN
 - `IndexError` - If index is out of bounds
-- `ValueError` - If slice and weights have different lengths
+- `ValueError` - For extended slices, if weights have different length than slice
+
+**Example:**
+
+```python
+sampler = SamplerList([1.0, 2.0, 3.0, 4.0])
+
+sampler[0] = 10.0           # Update single weight
+sampler[1] = 0              # Exclude from sampling
+sampler[0:2] = [5.0, 6.0]   # Update multiple weights
+sampler[1:3] = [7.0]        # Replace 2 elements with 1 (shrinks list)
+sampler[1:2] = [8.0, 9.0]   # Replace 1 element with 2 (expands list)
+```
+
+---
+
+#### \_\_delitem\_\_
+
+```python
+__delitem__(index: int) -> None
+```
+
+Delete the element at the given index.
+
+**Parameters:**
+
+- `index` - Integer index (can be negative)
+
+**Raises:**
+
+- `IndexError` - If index is out of bounds
 
 **Example:**
 
 ```python
 sampler = SamplerList([1.0, 2.0, 3.0])
-
-sampler[0] = 10.0        # Update single weight
-sampler[1] = 0           # Exclude from sampling
-sampler[0:2] = [5.0, 6.0]  # Update multiple weights
+del sampler[1]
+list(sampler)  # [1.0, 3.0]
 ```
 
 ---
@@ -272,6 +304,33 @@ len(sampler)  # 4
 
 ---
 
+#### insert
+
+```python
+insert(index: int, weight: float) -> None
+```
+
+Insert a weight at the given index.
+
+**Parameters:**
+
+- `index` - Index at which to insert (supports negative indices)
+- `weight` - Positive weight value
+
+**Raises:**
+
+- `ValueError` - If weight is non-positive, infinite, or NaN
+
+**Example:**
+
+```python
+sampler = SamplerList([1.0, 3.0])
+sampler.insert(1, 2.0)
+list(sampler)  # [1.0, 2.0, 3.0]
+```
+
+---
+
 #### pop
 
 ```python
@@ -296,6 +355,34 @@ len(sampler)  # 2
 
 ---
 
+#### remove
+
+```python
+remove(weight: float) -> None
+```
+
+Remove the first element with the given weight.
+
+Uses approximate comparison (tolerance 1e-10).
+
+**Parameters:**
+
+- `weight` - Weight value to remove
+
+**Raises:**
+
+- `ValueError` - If no element with this weight exists
+
+**Example:**
+
+```python
+sampler = SamplerList([1.0, 2.0, 3.0, 2.0])
+sampler.remove(2.0)
+list(sampler)  # [1.0, 3.0, 2.0]
+```
+
+---
+
 #### clear
 
 ```python
@@ -312,6 +399,68 @@ After calling `clear()`, the sampler will be empty (len = 0).
 sampler = SamplerList([1.0, 2.0, 3.0])
 sampler.clear()
 len(sampler)  # 0
+```
+
+---
+
+#### reverse
+
+```python
+reverse() -> None
+```
+
+Reverse the order of elements in place.
+
+**Example:**
+
+```python
+sampler = SamplerList([1.0, 2.0, 3.0])
+sampler.reverse()
+list(sampler)  # [3.0, 2.0, 1.0]
+```
+
+---
+
+#### copy
+
+```python
+copy() -> list[float]
+```
+
+Return a list copy of all weights.
+
+**Returns:** A new list containing all weights
+
+**Example:**
+
+```python
+sampler = SamplerList([1.0, 2.0, 3.0])
+weights = sampler.copy()  # [1.0, 2.0, 3.0]
+```
+
+---
+
+#### sort
+
+```python
+sort(*, reverse: bool = False) -> None
+```
+
+Sort elements in place.
+
+**Parameters:**
+
+- `reverse` - If True, sort in descending order (keyword-only)
+
+**Example:**
+
+```python
+sampler = SamplerList([3.0, 1.0, 2.0])
+sampler.sort()
+list(sampler)  # [1.0, 2.0, 3.0]
+
+sampler.sort(reverse=True)
+list(sampler)  # [3.0, 2.0, 1.0]
 ```
 
 ---
@@ -370,114 +519,6 @@ sampler.count(2.0)  # 2
 
 ---
 
-### RNG State Methods
-
-#### getstate
-
-```python
-getstate() -> bytes
-```
-
-Get the current state of the random number generator.
-
-!!! warning "Not Implemented"
-    State persistence is not yet fully implemented. Currently returns an empty bytes object. For reproducibility, use construction-time seeding with the `seed` parameter.
-
-**Returns:** A bytes object (currently empty placeholder)
-
----
-
-#### setstate
-
-```python
-setstate(state: bytes) -> None
-```
-
-Set the state of the random number generator.
-
-!!! warning "Not Implemented"
-    State persistence is not yet fully implemented.
-
-**Raises:**
-
-- `NotImplementedError` - Always (not yet implemented)
-
----
-
-### Statistical Testing
-
-#### test_distribution
-
-```python
-test_distribution(num_samples: int = 10000, seed: int | None = None) -> ChiSquaredResult
-```
-
-Run a chi-squared goodness-of-fit test on this sampler.
-
-Takes `num_samples` samples and tests whether the observed distribution matches the expected distribution based on weights.
-
-**Parameters:**
-
-- `num_samples` - Number of samples to take (default: 10000)
-- `seed` - Optional random seed for reproducibility
-
-**Returns:** A `ChiSquaredResult` containing the test statistics
-
-**Example:**
-
-```python
-sampler = SamplerList([1.0, 2.0, 3.0, 4.0])
-result = sampler.test_distribution(num_samples=10000, seed=42)
-print(f"P-value: {result.p_value}")
-if result.passes(0.05):
-    print("Distribution is correct")
-```
-
----
-
-## ChiSquaredResult
-
-Result of a chi-squared goodness-of-fit test.
-
-### Attributes
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `chi_squared` | `float` | The chi-squared statistic |
-| `degrees_of_freedom` | `int` | Degrees of freedom (number of categories - 1) |
-| `p_value` | `float` | The p-value (probability of observing this or more extreme result) |
-| `num_samples` | `int` | Number of samples taken |
-| `excluded_count` | `int` | Number of indices excluded from chi-squared (expected < threshold) |
-| `unexpected_samples` | `int` | Number of unexpected samples in excluded indices |
-
-### Methods
-
-#### passes
-
-```python
-passes(alpha: float) -> bool
-```
-
-Returns `True` if the test passes at the given significance level.
-
-A test "passes" if the p-value is greater than alpha, meaning we cannot reject the null hypothesis that the observed distribution matches expected.
-
-**Parameters:**
-
-- `alpha` - Significance level (commonly 0.05 or 0.01)
-
-**Returns:** `True` if p_value > alpha
-
-**Example:**
-
-```python
-result = sampler.test_distribution()
-if result.passes(0.05):
-    print("Distribution correct at 5% significance")
-```
-
----
-
 ## SamplerDict
 
 A dictionary-like type with weighted random sampling.
@@ -487,25 +528,29 @@ Keys are strings. Values are non-negative floats representing weights. The `samp
 ### Constructor
 
 ```python
-SamplerDict(seed: int | None = None)
+SamplerDict(weights: dict[str, float] | None = None, *, seed: int | None = None)
 ```
 
-Create a new empty `SamplerDict`.
+Create a new `SamplerDict` with optional initial weights.
 
 **Parameters:**
 
-- `seed` - Optional seed for the random number generator
+- `weights` - Optional dictionary of key-weight pairs
+- `seed` - Optional seed for the random number generator (keyword-only)
 
 **Example:**
 
 ```python
 from dynamic_random_sampler import SamplerDict
 
-# Basic construction
+# Create empty sampler
 sampler = SamplerDict()
 
+# Initialize with weights
+sampler = SamplerDict({"apple": 5.0, "banana": 3.0, "cherry": 2.0})
+
 # With seed for reproducibility
-sampler = SamplerDict(seed=42)
+sampler = SamplerDict({"a": 1.0, "b": 2.0}, seed=42)
 ```
 
 ---
@@ -532,9 +577,7 @@ Returns a key with probability proportional to its weight. Keys with weight 0 ar
 **Example:**
 
 ```python
-sampler = SamplerDict()
-sampler["a"] = 1.0
-sampler["b"] = 2.0
+sampler = SamplerDict({"a": 1.0, "b": 2.0})
 key = sampler.sample()  # Returns "a" or "b"
 ```
 
@@ -737,8 +780,7 @@ The library raises standard Python exceptions:
 
 | Exception | When |
 |-----------|------|
-| `ValueError` | Invalid weight (negative, infinite, NaN), empty weights list, cannot sample |
+| `ValueError` | Invalid weight (negative, infinite, NaN), cannot sample from empty/all-zero |
 | `IndexError` | Index out of bounds, pop from empty list |
 | `KeyError` | Key not found in SamplerDict |
 | `TypeError` | Invalid index type |
-| `NotImplementedError` | `setstate()` called (not yet implemented) |
