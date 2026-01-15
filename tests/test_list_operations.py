@@ -15,12 +15,15 @@ import pytest
 # =============================================================================
 
 
-def test_empty_weights_rejected() -> None:
-    """Verify empty weight list is rejected."""
+def test_empty_weights_allowed() -> None:
+    """Verify empty weight list creates an empty sampler."""
     from dynamic_random_sampler import SamplerList
 
-    with pytest.raises(ValueError):
-        SamplerList([])
+    sampler = SamplerList([])
+    assert len(sampler) == 0
+    # Also test with no argument
+    sampler2 = SamplerList()
+    assert len(sampler2) == 0
 
 
 def test_negative_weights_rejected() -> None:
@@ -183,13 +186,37 @@ def test_setitem_slice_basic() -> None:
     assert abs(sampler[4] - 5.0) < 1e-10
 
 
-def test_setitem_slice_wrong_length() -> None:
-    """Test setting slice with wrong length raises error."""
+def test_setitem_slice_different_length() -> None:
+    """Test setting slice with different length resizes the list."""
+    from dynamic_random_sampler import SamplerList
+
+    # Test shrinking
+    sampler: Any = SamplerList([1.0, 2.0, 3.0, 4.0, 5.0])
+    sampler[1:4] = [10.0, 20.0]  # Replace 3 elements with 2
+    assert len(sampler) == 4
+    assert abs(sampler[0] - 1.0) < 1e-10
+    assert abs(sampler[1] - 10.0) < 1e-10
+    assert abs(sampler[2] - 20.0) < 1e-10
+    assert abs(sampler[3] - 5.0) < 1e-10
+
+    # Test expanding
+    sampler2: Any = SamplerList([1.0, 2.0, 3.0])
+    sampler2[1:2] = [10.0, 20.0, 30.0]  # Replace 1 element with 3
+    assert len(sampler2) == 5
+    assert abs(sampler2[0] - 1.0) < 1e-10
+    assert abs(sampler2[1] - 10.0) < 1e-10
+    assert abs(sampler2[2] - 20.0) < 1e-10
+    assert abs(sampler2[3] - 30.0) < 1e-10
+    assert abs(sampler2[4] - 3.0) < 1e-10
+
+
+def test_setitem_extended_slice_wrong_length() -> None:
+    """Test extended slice (step != 1) with wrong length raises error."""
     from dynamic_random_sampler import SamplerList
 
     sampler: Any = SamplerList([1.0, 2.0, 3.0, 4.0, 5.0])
     with pytest.raises(ValueError, match="attempt to assign sequence"):
-        sampler[1:4] = [10.0, 20.0]  # Wrong length
+        sampler[::2] = [10.0, 20.0]  # Extended slice needs exact length
 
 
 def test_getitem_slice_negative_step() -> None:

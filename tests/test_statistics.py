@@ -10,7 +10,7 @@ def test_chi_squared_result_attributes() -> None:
     from dynamic_random_sampler import SamplerList
 
     sampler: Any = SamplerList([1.0, 2.0, 3.0])
-    result = sampler.test_distribution(1000)
+    result = sampler._test_distribution(1000)
 
     assert hasattr(result, "chi_squared")
     assert hasattr(result, "degrees_of_freedom")
@@ -24,7 +24,7 @@ def test_chi_squared_result_values() -> None:
     from dynamic_random_sampler import SamplerList
 
     sampler: Any = SamplerList([1.0, 2.0, 3.0])
-    result = sampler.test_distribution(1000)
+    result = sampler._test_distribution(1000)
 
     assert result.chi_squared >= 0.0
     assert result.degrees_of_freedom == 2  # 3 elements - 1
@@ -50,7 +50,7 @@ def test_chi_squared_passes_for_correct_distribution() -> None:
 
     for weights in test_cases:
         sampler: Any = SamplerList(weights)
-        result = sampler.test_distribution(10000)
+        result = sampler._test_distribution(10000)
 
         # Test should pass at 0.01 level (99% confidence)
         assert result.passes(0.01), (
@@ -64,7 +64,7 @@ def test_chi_squared_repr() -> None:
     from dynamic_random_sampler import SamplerList
 
     sampler: Any = SamplerList([1.0, 2.0])
-    result = sampler.test_distribution(100)
+    result = sampler._test_distribution(100)
 
     repr_str = repr(result)
     assert "ChiSquaredResult" in repr_str
@@ -77,7 +77,7 @@ def test_chi_squared_default_num_samples() -> None:
     from dynamic_random_sampler import SamplerList
 
     sampler: Any = SamplerList([1.0, 2.0])
-    result = sampler.test_distribution()
+    result = sampler._test_distribution()
 
     assert result.num_samples == 10000
 
@@ -89,7 +89,7 @@ def test_chi_squared_custom_num_samples() -> None:
     sampler: Any = SamplerList([1.0, 2.0])
 
     for n in [100, 500, 5000]:
-        result = sampler.test_distribution(n)
+        result = sampler._test_distribution(n)
         assert result.num_samples == n
 
 
@@ -104,7 +104,7 @@ def test_chi_squared_high_confidence() -> None:
 
     weights = [1.0, 2.0, 4.0, 8.0, 16.0]
     sampler: Any = SamplerList(weights)
-    result = sampler.test_distribution(100000)
+    result = sampler._test_distribution(100000)
 
     # With 100k samples, even small deviations would be detected
     # Test at 0.001 level (99.9% confidence)

@@ -130,25 +130,21 @@ mod python_bindings {
     impl SamplerList {
         /// Create a new sampler from a list of weights.
         ///
-        /// Weights must be positive.
+        /// Weights must be positive (or empty to start with an empty sampler).
         ///
         /// # Arguments
         ///
-        /// * `weights` - List of positive weights
+        /// * `weights` - List of positive weights (can be empty)
         /// * `seed` - Optional seed for the random number generator. If None, uses entropy
         ///
         /// # Errors
         ///
-        /// Returns error if weights is empty or contains non-positive values.
+        /// Returns error if weights contains non-positive values.
         #[new]
-        #[pyo3(signature = (weights, seed=None))]
+        #[pyo3(signature = (weights=None, *, seed=None))]
         #[allow(clippy::needless_pass_by_value)]
-        pub fn new(weights: Vec<f64>, seed: Option<u64>) -> PyResult<Self> {
-            if weights.is_empty() {
-                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "weights cannot be empty",
-                ));
-            }
+        pub fn new(weights: Option<Vec<f64>>, seed: Option<u64>) -> PyResult<Self> {
+            let weights = weights.unwrap_or_default();
             for &w in &weights {
                 Self::validate_positive_weight(w)?;
             }
@@ -199,12 +195,14 @@ mod python_bindings {
         /// Setting weight to 0 excludes the element from sampling but keeps it
         /// in the list (indices stay stable).
         ///
-        /// For slices, value must be an iterable of the same length as the slice.
+        /// For slices, if the value has a different length than the slice,
+        /// the list is resized accordingly (like Python lists).
         ///
         /// # Errors
         ///
         /// Returns error if weight is negative, infinite, NaN, or index is out of bounds.
         #[allow(deprecated)]
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
         fn __setitem__(
             &mut self,
             key: &Bound<'_, PyAny>,
@@ -212,25 +210,62 @@ mod python_bindings {
         ) -> PyResult<()> {
             if let Ok(slice) = key.downcast::<PySlice>() {
                 // Handle slice
-                let py_indices = slice_indices(slice, self.len)?;
-                let weights: Vec<f64> = value.extract()?;
-                if weights.len() != py_indices.len() {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "attempt to assign sequence of size {} to slice of size {}",
-                        weights.len(),
-                        py_indices.len()
-                    )));
-                }
-                for &w in &weights {
+                let new_weights: Vec<f64> = value.extract()?;
+                for &w in &new_weights {
                     Self::validate_nonnegative_weight(w)?;
                 }
-                for (&idx, &weight) in py_indices.iter().zip(weights.iter()) {
-                    let log_weight = if weight == 0.0 {
-                        f64::NEG_INFINITY
-                    } else {
-                        weight.log2()
-                    };
-                    self.tree.update(idx, log_weight);
+
+                let indices = slice.indices(self.len as isize)?;
+                let py_indices = slice_indices(slice, self.len)?;
+
+                // For extended slices (step != 1), require exact length match (like Python)
+                if indices.step != 1 {
+                    if new_weights.len() != py_indices.len() {
+                        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                            "attempt to assign sequence of size {} to extended slice of size {}",
+                            new_weights.len(),
+                            py_indices.len()
+                        )));
+                    }
+                    // Same size, just update in place
+                    for (&idx, &weight) in py_indices.iter().zip(new_weights.iter()) {
+                        let log_weight = if weight == 0.0 {
+                            f64::NEG_INFINITY
+                        } else {
+                            weight.log2()
+                        };
+                        self.tree.update(idx, log_weight);
+                    }
+                    return Ok(());
+                }
+
+                // For step=1 slices, support resizing (like Python)
+                if new_weights.len() == py_indices.len() {
+                    // Same size, just update in place (faster)
+                    for (&idx, &weight) in py_indices.iter().zip(new_weights.iter()) {
+                        let log_weight = if weight == 0.0 {
+                            f64::NEG_INFINITY
+                        } else {
+                            weight.log2()
+                        };
+                        self.tree.update(idx, log_weight);
+                    }
+                } else {
+                    // Different size, need to rebuild
+                    let start = indices.start.max(0) as usize;
+                    let stop = indices.stop.max(0) as usize;
+                    let start = start.min(self.len);
+                    let stop = stop.min(self.len);
+
+                    // Get current weights
+                    let mut current: Vec<f64> =
+                        (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+
+                    // Replace the slice with new weights
+                    let _removed: Vec<f64> = current.splice(start..stop, new_weights).collect();
+
+                    // Rebuild from new weights
+                    self.rebuild_from_weights(current);
                 }
                 Ok(())
             } else if let Ok(index) = key.extract::<isize>() {
@@ -394,57 +429,119 @@ mod python_bindings {
             self.rng = ChaCha8Rng::seed_from_u64(seed);
         }
 
-        /// Get the current state of the random number generator.
-        ///
-        /// Note: State persistence is not yet fully implemented. This returns an empty
-        /// vector as a placeholder. For reproducibility, use construction-time seeding
-        /// with the `seed` parameter.
-        ///
-        /// # Returns
-        ///
-        /// A bytes object (currently empty - placeholder for future implementation).
-        #[must_use]
-        #[allow(clippy::missing_const_for_fn)] // pymethod cannot be const
-        pub fn getstate(&self) -> Vec<u8> {
-            // Full state serialization requires exposing ChaCha8Rng internals
-            // which is complex. For now, return empty and document the limitation.
-            Vec::new()
+        // =====================================================================
+        // List mutation methods (rebuild-based implementation)
+        // =====================================================================
+
+        /// Helper to rebuild the tree from current weights.
+        fn rebuild_from_weights(&mut self, weights: Vec<f64>) {
+            let log_weights: Vec<f64> = weights
+                .iter()
+                .map(|&w| if w == 0.0 { f64::NEG_INFINITY } else { w.log2() })
+                .collect();
+            self.tree = MutableTree::new(log_weights);
+            self.len = weights.len();
         }
 
-        /// Set the state of the random number generator.
+        /// Delete the element at the given index.
         ///
-        /// # Arguments
-        ///
-        /// * `state` - State bytes from a previous call to `getstate()`
+        /// This shifts all subsequent indices down by one.
         ///
         /// # Errors
         ///
-        /// Returns error if the state is invalid.
-        #[allow(clippy::needless_pass_by_value)]
-        #[allow(clippy::unused_self)]
-        pub fn setstate(&mut self, _state: Vec<u8>) -> PyResult<()> {
-            // Placeholder - full state restoration requires more complex implementation
-            Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-                "getstate/setstate not yet fully implemented for RNG state persistence",
-            ))
+        /// Returns error if index is out of bounds.
+        fn __delitem__(&mut self, index: isize) -> PyResult<()> {
+            let idx = self.map_index(index)?;
+            let mut weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+            weights.remove(idx);
+            self.rebuild_from_weights(weights);
+            Ok(())
         }
 
-        /// Run a chi-squared goodness-of-fit test on this sampler.
+        /// Insert a weight at the given index.
         ///
-        /// Takes `num_samples` samples and tests whether the observed distribution
-        /// matches the expected distribution based on weights.
+        /// All elements at and after this index are shifted right.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if weight is non-positive, infinite, or NaN.
+        #[allow(clippy::cast_sign_loss)]
+        pub fn insert(&mut self, index: isize, weight: f64) -> PyResult<()> {
+            Self::validate_positive_weight(weight)?;
+            // Allow inserting at len (append equivalent)
+            let idx = if index < 0 {
+                let positive = (-index) as usize;
+                if positive > self.len {
+                    0 // Clamp to beginning like Python
+                } else {
+                    self.len - positive
+                }
+            } else {
+                let idx = index as usize;
+                if idx > self.len {
+                    self.len // Clamp to end like Python
+                } else {
+                    idx
+                }
+            };
+            let mut weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+            weights.insert(idx, weight);
+            self.rebuild_from_weights(weights);
+            Ok(())
+        }
+
+        /// Remove the first element with the given weight.
+        ///
+        /// # Errors
+        ///
+        /// Returns error if no element with this weight exists.
+        pub fn remove(&mut self, weight: f64) -> PyResult<()> {
+            let idx = self.index(weight)?;
+            let mut weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+            weights.remove(idx);
+            self.rebuild_from_weights(weights);
+            Ok(())
+        }
+
+        /// Reverse the order of elements in place.
+        pub fn reverse(&mut self) {
+            let mut weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+            weights.reverse();
+            self.rebuild_from_weights(weights);
+        }
+
+        /// Return a copy of the weights as a Python list.
+        fn copy(&self) -> Vec<f64> {
+            (0..self.len).map(|i| self.get_weight_internal(i)).collect()
+        }
+
+        /// Sort the weights in place.
         ///
         /// # Arguments
         ///
-        /// * `num_samples` - Number of samples to take (default: 10000)
-        /// * `seed` - Optional random seed for reproducibility (default: None)
+        /// * `reverse` - If True, sort in descending order (default: False)
+        #[pyo3(signature = (*, reverse=false))]
+        pub fn sort(&mut self, reverse: bool) {
+            let mut weights: Vec<f64> = (0..self.len).map(|i| self.get_weight_internal(i)).collect();
+            weights.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            if reverse {
+                weights.reverse();
+            }
+            self.rebuild_from_weights(weights);
+        }
+
+        // =====================================================================
+        // Internal testing utilities (not part of public API)
+        // =====================================================================
+
+        /// Run a chi-squared goodness-of-fit test on this sampler.
         ///
-        /// # Returns
-        ///
-        /// A `PyChiSquaredResult` containing the test statistics.
+        /// This is an internal testing method, not part of the public API.
+        /// The leading underscore indicates it should not be relied upon.
+        #[pyo3(name = "_test_distribution")]
         #[pyo3(signature = (num_samples=10000, seed=None))]
-        #[allow(clippy::items_after_statements)] // Helper function and constants placed near usage
-        #[allow(clippy::too_many_lines)] // Logic is cohesive, splitting would reduce clarity
+        #[allow(clippy::items_after_statements)]
+        #[allow(clippy::too_many_lines)]
         pub fn test_distribution(
             &self,
             num_samples: usize,
@@ -597,36 +694,27 @@ mod python_bindings {
         }
     }
 
-    /// Result of a chi-squared goodness-of-fit test (Python wrapper).
-    #[pyclass(name = "ChiSquaredResult")]
+    /// Result of a chi-squared goodness-of-fit test (internal use only).
+    /// Not exported in the public module API.
+    #[pyclass(name = "_ChiSquaredResult")]
     #[derive(Clone)]
     pub struct PyChiSquaredResult {
-        /// The chi-squared statistic.
         #[pyo3(get)]
         pub chi_squared: f64,
-        /// Degrees of freedom (number of categories - 1).
         #[pyo3(get)]
         pub degrees_of_freedom: usize,
-        /// The p-value (probability of observing this or more extreme result).
         #[pyo3(get)]
         pub p_value: f64,
-        /// Number of samples taken.
         #[pyo3(get)]
         pub num_samples: usize,
-        /// Number of indices excluded from chi-squared (expected < threshold).
         #[pyo3(get)]
         pub excluded_count: usize,
-        /// Number of unexpected samples in excluded indices.
         #[pyo3(get)]
         pub unexpected_samples: usize,
     }
 
     #[pymethods]
     impl PyChiSquaredResult {
-        /// Returns true if the test passes at the given significance level.
-        ///
-        /// A test "passes" if the p-value is greater than alpha, meaning we cannot
-        /// reject the null hypothesis that the observed distribution matches expected.
         #[must_use]
         pub fn passes(&self, alpha: f64) -> bool {
             self.p_value > alpha
@@ -634,7 +722,7 @@ mod python_bindings {
 
         fn __repr__(&self) -> String {
             format!(
-                "ChiSquaredResult(chi_squared={:.4}, df={}, p_value={:.6}, n={}, excluded={}, unexpected={})",
+                "_ChiSquaredResult(chi_squared={:.4}, df={}, p_value={:.6}, n={}, excluded={}, unexpected={})",
                 self.chi_squared, self.degrees_of_freedom, self.p_value, self.num_samples,
                 self.excluded_count, self.unexpected_samples
             )
@@ -728,21 +816,53 @@ mod python_bindings {
 
     #[pymethods]
     impl SamplerDict {
-        /// Create a new empty `SamplerDict`.
+        /// Create a new `SamplerDict`, optionally initialized with weights.
         ///
         /// # Arguments
         ///
+        /// * `weights` - Optional dictionary of key-weight pairs (can be empty or None)
         /// * `seed` - Optional seed for the random number generator
+        ///
+        /// # Errors
+        ///
+        /// Returns error if any weight is negative, infinite, or NaN.
         #[new]
-        #[pyo3(signature = (seed=None))]
-        pub fn new(seed: Option<u64>) -> Self {
+        #[pyo3(signature = (weights=None, *, seed=None))]
+        #[allow(clippy::needless_pass_by_value)]
+        pub fn new(weights: Option<HashMap<String, f64>>, seed: Option<u64>) -> PyResult<Self> {
             let rng = seed.map_or_else(ChaCha8Rng::from_entropy, ChaCha8Rng::seed_from_u64);
-            Self {
-                keys: Vec::new(),
-                key_to_index: HashMap::new(),
-                tree: MutableTree::new(vec![]),
-                rng,
+
+            let weights = weights.unwrap_or_default();
+
+            // Validate all weights first
+            for &w in weights.values() {
+                Self::validate_weight(w)?;
             }
+
+            let mut keys = Vec::with_capacity(weights.len());
+            let mut key_to_index = HashMap::with_capacity(weights.len());
+            let mut log_weights = Vec::with_capacity(weights.len());
+
+            for (key, weight) in weights {
+                let idx = keys.len();
+                keys.push(key.clone());
+                key_to_index.insert(key, idx);
+                let log_weight = if weight == 0.0 {
+                    f64::NEG_INFINITY
+                } else {
+                    weight.log2()
+                };
+                log_weights.push(log_weight);
+            }
+
+            let tree = MutableTree::new(log_weights);
+
+            Ok(Self {
+                keys,
+                key_to_index,
+                tree,
+                rng,
+            })
         }
 
         /// Return the number of keys.
@@ -1011,7 +1131,6 @@ mod python_bindings {
     #[allow(clippy::missing_errors_doc)]
     pub fn dynamic_random_sampler(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> PyResult<()> {
         m.add_class::<SamplerList>()?;
-        m.add_class::<PyChiSquaredResult>()?;
         m.add_class::<PyWeightIterator>()?;
         m.add_class::<SamplerDict>()?;
         m.add_class::<PyKeyIterator>()?;

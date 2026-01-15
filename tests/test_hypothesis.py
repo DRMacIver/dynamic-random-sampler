@@ -327,7 +327,7 @@ class SamplerListStateMachine(RuleBasedStateMachine):
         # Run chi-squared test on the final state with fresh samples
         # Use enough samples for statistical power without being too slow
         # Pass seed for reproducibility (allows Hypothesis to shrink failing cases)
-        result = self.sampler.test_distribution(10000, seed=self.chi_squared_seed)
+        result = self.sampler._test_distribution(10000, seed=self.chi_squared_seed)
         note(
             f"Chi-squared test: chi2={result.chi_squared:.2f}, p={result.p_value:.4f}, "
             f"seed={self.chi_squared_seed}, excluded={result.excluded_count}, "
@@ -460,7 +460,7 @@ def test_chi_squared_passes_after_construction(weights: list[float]) -> None:
 
     sampler: Any = SamplerList(weights)
     # Use 10k samples - enough for good statistical power without being too slow
-    result = sampler.test_distribution(10000)
+    result = sampler._test_distribution(10000)
 
     # Use alpha=1e-6 for negligible false positive rate (~1e-5 per run).
     # Power: with 10k samples, >99.9999% power to detect 50% sampling error.
