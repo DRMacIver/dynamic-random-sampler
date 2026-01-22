@@ -41,7 +41,10 @@ pub use debug::{dump_level_state, dump_range_state, dump_tree_state};
 pub use level::Level;
 pub use range::Range;
 pub use sampler::{sample, sample_n};
-pub use stats::{chi_squared_from_counts, chi_squared_sf, ChiSquaredResult};
+pub use stats::{
+    chi_squared_from_counts, chi_squared_sf, likelihood_test, standard_normal_cdf, Assignment,
+    ChiSquaredResult, LikelihoodTestResult,
+};
 pub use tree::Tree;
 pub use update::MutableTree;
 

@@ -668,6 +668,44 @@ impl MutableTree {
             Some(&self.levels[level_num - 1])
         }
     }
+
+    /// Get the log-probabilities for all active elements.
+    ///
+    /// Returns a vector where each element is the log₂ probability of sampling
+    /// that element (log₂(weight / total_weight)). Deleted elements have
+    /// probability `NEG_INFINITY`.
+    ///
+    /// # Returns
+    ///
+    /// A vector of log₂ probabilities, one for each element.
+    #[must_use]
+    pub fn log_probabilities(&self) -> Vec<f64> {
+        use crate::core::log_sum_exp_slice;
+
+        if self.element_log_weights.is_empty() {
+            return vec![];
+        }
+
+        // Compute total log weight using log-sum-exp
+        let total_log_weight = log_sum_exp_slice(&self.element_log_weights);
+
+        // If all weights are deleted/zero, return all NEG_INFINITY
+        if total_log_weight.is_infinite() && total_log_weight < 0.0 {
+            return vec![DELETED_LOG_WEIGHT; self.element_log_weights.len()];
+        }
+
+        // Compute log probabilities: log₂(w_i / W) = log₂(w_i) - log₂(W)
+        self.element_log_weights
+            .iter()
+            .map(|&lw| {
+                if is_deleted_weight(lw) {
+                    DELETED_LOG_WEIGHT
+                } else {
+                    lw - total_log_weight
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -2035,5 +2073,89 @@ mod tests {
 
         // Final state should be valid
         assert_eq!(tree.active_count(), n);
+    }
+
+    // -------------------------------------------------------------------------
+    // Log Probabilities Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_log_probabilities_uniform() {
+        // Uniform weights: each element has probability 1/n
+        let tree = MutableTree::new(vec![0.0, 0.0, 0.0, 0.0]); // weights all 1.0
+
+        let log_probs = tree.log_probabilities();
+
+        assert_eq!(log_probs.len(), 4);
+        // Each probability should be 1/4, so log2(1/4) = -2
+        for &lp in &log_probs {
+            assert_relative_eq!(lp, -2.0, epsilon = 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_log_probabilities_weighted() {
+        // Weights [1, 2, 4, 1] -> probabilities [1/8, 2/8, 4/8, 1/8]
+        let tree = MutableTree::new(vec![0.0, 1.0, 2.0, 0.0]); // weights 1, 2, 4, 1
+
+        let log_probs = tree.log_probabilities();
+
+        assert_eq!(log_probs.len(), 4);
+        // Total weight = 8, so:
+        // p[0] = 1/8 = 0.125, log2(0.125) = -3
+        // p[1] = 2/8 = 0.25, log2(0.25) = -2
+        // p[2] = 4/8 = 0.5, log2(0.5) = -1
+        // p[3] = 1/8 = 0.125, log2(0.125) = -3
+        assert_relative_eq!(log_probs[0], -3.0, epsilon = 1e-10);
+        assert_relative_eq!(log_probs[1], -2.0, epsilon = 1e-10);
+        assert_relative_eq!(log_probs[2], -1.0, epsilon = 1e-10);
+        assert_relative_eq!(log_probs[3], -3.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_log_probabilities_with_deleted() {
+        let mut tree = MutableTree::new(vec![0.0, 0.0, 0.0]); // weights all 1.0
+        tree.delete(1); // Delete middle element
+
+        let log_probs = tree.log_probabilities();
+
+        assert_eq!(log_probs.len(), 3);
+        // p[0] = 1/2, log2(0.5) = -1
+        // p[1] = deleted -> NEG_INFINITY
+        // p[2] = 1/2, log2(0.5) = -1
+        assert_relative_eq!(log_probs[0], -1.0, epsilon = 1e-10);
+        assert!(log_probs[1].is_infinite() && log_probs[1] < 0.0);
+        assert_relative_eq!(log_probs[2], -1.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_log_probabilities_empty() {
+        let tree = MutableTree::new(vec![]);
+        let log_probs = tree.log_probabilities();
+        assert!(log_probs.is_empty());
+    }
+
+    #[test]
+    fn test_log_probabilities_all_deleted() {
+        let mut tree = MutableTree::new(vec![0.0, 0.0]);
+        tree.delete(0);
+        tree.delete(1);
+
+        let log_probs = tree.log_probabilities();
+
+        assert_eq!(log_probs.len(), 2);
+        assert!(log_probs[0].is_infinite() && log_probs[0] < 0.0);
+        assert!(log_probs[1].is_infinite() && log_probs[1] < 0.0);
+    }
+
+    #[test]
+    fn test_log_probabilities_sum_to_one() {
+        // Verify probabilities sum to 1 (in linear space)
+        let tree = MutableTree::new(vec![1.0, 2.0, 3.0, 0.5]);
+
+        let log_probs = tree.log_probabilities();
+        let sum: f64 = log_probs.iter().filter(|&&lp| lp.is_finite()).map(|&lp| lp.exp2()).sum();
+
+        assert_relative_eq!(sum, 1.0, epsilon = 1e-10);
     }
 }

@@ -729,6 +729,137 @@ mod python_bindings {
         }
     }
 
+    /// Result of a likelihood-based statistical test (internal use only).
+    #[pyclass(name = "_LikelihoodTestResult")]
+    #[derive(Clone)]
+    pub struct PyLikelihoodTestResult {
+        #[pyo3(get)]
+        pub observed_log_likelihood: f64,
+        #[pyo3(get)]
+        pub expected_log_likelihood: f64,
+        #[pyo3(get)]
+        pub variance: f64,
+        #[pyo3(get)]
+        pub z_score: f64,
+        #[pyo3(get)]
+        pub p_value: f64,
+        #[pyo3(get)]
+        pub num_samples: usize,
+    }
+
+    #[pymethods]
+    impl PyLikelihoodTestResult {
+        #[must_use]
+        pub fn passes(&self, alpha: f64) -> bool {
+            self.p_value > alpha
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "_LikelihoodTestResult(observed={:.4}, expected={:.4}, var={:.4}, z={:.4}, p={:.6}, n={})",
+                self.observed_log_likelihood, self.expected_log_likelihood,
+                self.variance, self.z_score, self.p_value, self.num_samples
+            )
+        }
+    }
+
+    /// Run a likelihood-based statistical test on a sampler.
+    ///
+    /// This is a standalone function (not a method) for testing the sampler's
+    /// correctness with dynamic weight updates.
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_weights` - Initial list of positive weights
+    /// * `num_samples` - Number of samples to take (must be >= 100)
+    /// * `assignments` - List of (sample_index, weight_index, new_weight) tuples
+    /// * `seed` - Optional seed for reproducibility
+    ///
+    /// # Returns
+    ///
+    /// A `_LikelihoodTestResult` with the test statistics.
+    #[pyfunction]
+    #[pyo3(name = "_likelihood_test")]
+    #[pyo3(signature = (initial_weights, num_samples, assignments, seed=None))]
+    pub fn py_likelihood_test(
+        initial_weights: Vec<f64>,
+        num_samples: usize,
+        assignments: Vec<(usize, usize, f64)>,
+        seed: Option<u64>,
+    ) -> PyResult<PyLikelihoodTestResult> {
+        use crate::core::{likelihood_test, Assignment};
+
+        // Validate inputs
+        if num_samples < 100 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "num_samples must be at least 100",
+            ));
+        }
+        if initial_weights.is_empty() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "initial_weights cannot be empty",
+            ));
+        }
+        if !initial_weights.iter().any(|&w| w > 0.0) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "at least one weight must be positive",
+            ));
+        }
+
+        // Validate assignments
+        for &(sample_idx, _, weight) in &assignments {
+            if sample_idx >= num_samples {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    format!("assignment sample_index {} is >= num_samples {}", sample_idx, num_samples),
+                ));
+            }
+            if !weight.is_finite() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "assignment weight must be finite",
+                ));
+            }
+            if weight < 0.0 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "assignment weight must be non-negative",
+                ));
+            }
+        }
+
+        // Convert assignments
+        let rust_assignments: Vec<Assignment> = assignments
+            .into_iter()
+            .map(|(sample_index, weight_index, new_weight)| Assignment {
+                sample_index,
+                weight_index,
+                new_weight,
+            })
+            .collect();
+
+        // Run the test
+        let result = seed.map_or_else(
+            || {
+                let mut rng = rand::thread_rng();
+                likelihood_test(&initial_weights, num_samples, &rust_assignments, &mut rng)
+            },
+            |s| {
+                let mut rng = ChaCha8Rng::seed_from_u64(s);
+                likelihood_test(&initial_weights, num_samples, &rust_assignments, &mut rng)
+            },
+        );
+
+        match result {
+            Ok(r) => Ok(PyLikelihoodTestResult {
+                observed_log_likelihood: r.observed_log_likelihood,
+                expected_log_likelihood: r.expected_log_likelihood,
+                variance: r.variance,
+                z_score: r.z_score,
+                p_value: r.p_value,
+                num_samples: r.num_samples,
+            }),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(e)),
+        }
+    }
+
     /// Iterator over weights in a `SamplerList`.
     #[pyclass]
     pub struct PyWeightIterator {
@@ -1134,6 +1265,8 @@ mod python_bindings {
         m.add_class::<PyWeightIterator>()?;
         m.add_class::<SamplerDict>()?;
         m.add_class::<PyKeyIterator>()?;
+        m.add_class::<PyLikelihoodTestResult>()?;
+        m.add_function(wrap_pyfunction!(py_likelihood_test, m)?)?;
         Ok(())
     }
 }

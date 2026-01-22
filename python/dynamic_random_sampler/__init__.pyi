@@ -452,3 +452,95 @@ class SamplerDict:
     def __repr__(self) -> str:
         """Return a string representation."""
         ...
+
+
+class _LikelihoodTestResult:
+    """Result of a likelihood-based statistical test (internal use only).
+
+    This class is used by the _likelihood_test function to return
+    the test statistics and p-value.
+    """
+
+    @property
+    def observed_log_likelihood(self) -> float:
+        """The observed sum of log-likelihoods."""
+        ...
+
+    @property
+    def expected_log_likelihood(self) -> float:
+        """The expected sum of log-likelihoods under null hypothesis."""
+        ...
+
+    @property
+    def variance(self) -> float:
+        """The variance of the log-likelihood sum under null hypothesis."""
+        ...
+
+    @property
+    def z_score(self) -> float:
+        """The z-score (standardized test statistic)."""
+        ...
+
+    @property
+    def p_value(self) -> float:
+        """The two-tailed p-value."""
+        ...
+
+    @property
+    def num_samples(self) -> int:
+        """Number of samples taken."""
+        ...
+
+    def passes(self, alpha: float) -> bool:
+        """Returns True if the test passes at the given significance level.
+
+        A test "passes" if the p-value is greater than alpha.
+
+        Args:
+            alpha: The significance level (e.g., 0.05, 1e-6).
+
+        Returns:
+            True if p_value > alpha, False otherwise.
+        """
+        ...
+
+
+def _likelihood_test(
+    initial_weights: list[float],
+    num_samples: int,
+    assignments: list[tuple[int, int, float]],
+    seed: int | None = None,
+) -> _LikelihoodTestResult:
+    """Run a likelihood-based statistical test on a sampler (internal use only).
+
+    This function tests whether the sampler produces correct probability
+    distributions, accounting for dynamic weight updates.
+
+    The test works by:
+    1. Creating a sampler with initial weights
+    2. For each sample i from 0 to num_samples-1:
+       - Apply any assignments where sample_index == i
+       - Take a sample and record its log-probability
+    3. Calculate the sum of log-likelihoods
+    4. Compare to expected distribution using normal approximation
+    5. Return two-tailed p-value
+
+    Args:
+        initial_weights: Initial list of positive weights.
+        num_samples: Number of samples to take (must be >= 100).
+        assignments: List of (sample_index, weight_index, new_weight) tuples.
+            Each assignment specifies that right before sample `sample_index`,
+            the weight at `weight_index` should be set to `new_weight`.
+            The weight array is zero-extended if weight_index >= len(weights).
+        seed: Optional seed for reproducibility.
+
+    Returns:
+        A _LikelihoodTestResult with the test statistics.
+
+    Raises:
+        ValueError: If num_samples < 100.
+        ValueError: If initial_weights is empty or all zero.
+        ValueError: If any assignment has sample_index >= num_samples.
+        ValueError: If any assignment has invalid weight.
+    """
+    ...
