@@ -1,6 +1,6 @@
 [project]
 name = "dynamic-random-sampler"
-version = "26.1.15.1"
+version = "26.1.22.0"
 description = "Dynamic weighted random sampling with O(log* N) operations"
 requires-python = ">=3.12"
 dependencies = []
