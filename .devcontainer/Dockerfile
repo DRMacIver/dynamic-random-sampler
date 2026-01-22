@@ -20,6 +20,7 @@ RUN apt-get update \
 
 # Install base dependencies
 RUN apt-get update && apt-get install -y \
+    build-essential \
     ca-certificates \
     curl \
     git \
@@ -49,7 +50,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 RUN uv tool install pre-commit
 
-# Install uv for Python package management
+# Install uv for Python package management (for dev user)
 USER dev
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/home/dev/.local/bin:$PATH"

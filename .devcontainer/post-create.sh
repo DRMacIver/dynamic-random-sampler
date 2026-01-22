@@ -40,6 +40,14 @@ if [ -f .pre-commit-config.yaml ] && [ -f .githooks/check-beads-interaction.sh ]
     pre-commit install 2>/dev/null || true
 fi
 
+# Install Rust toolchain if not present (needed for PyO3/maturin projects)
+# This runs after volume mount, so installs into the persistent home directory
+if ! command -v rustc &> /dev/null; then
+    echo "Installing Rust toolchain..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    source "$HOME/.cargo/env"
+fi
+
 echo "Development environment ready!"
 
 # Install Python project dependencies
